@@ -1,0 +1,64 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+@import "tailwindcss";
+
+:root {
+  --background: #0a0a1a;
+  --foreground: #e0e0e0;
+  --card: #111128;
+  --card-border: #1e1e3a;
+  --accent-green: #00ff88;
+  --accent-gold: #ffd700;
+  --accent-red: #ff4466;
+  --accent-blue: #4488ff;
+  --accent-purple: #aa66ff;
+  --accent-cyan: #00ccff;
+  --muted: #666688;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-border: var(--card-border);
+  --color-accent-green: var(--accent-green);
+  --color-accent-gold: var(--accent-gold);
+  --color-accent-red: var(--accent-red);
+  --color-accent-blue: var(--accent-blue);
+  --color-accent-purple: var(--accent-purple);
+  --color-accent-cyan: var(--accent-cyan);
+  --color-muted: var(--muted);
+  --font-pixel: 'Press Start 2P', monospace;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: system-ui, -apple-system, sans-serif;
+  min-height: 100dvh;
+}
+
+.xp-bar {
+  background: #1a1a2e;
+  border-radius: 4px;
+  overflow: hidden;
+  height: 8px;
+}
+.xp-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+
+.glow-card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  transition: border-color 0.2s;
+}
+.glow-card:hover {
+  border-color: #2a2a4a;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
