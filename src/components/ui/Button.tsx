@@ -8,16 +8,16 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const VARIANTS = {
-  primary: 'bg-accent-green/20 text-accent-green border border-accent-green/30 hover:bg-accent-green/30',
-  secondary: 'bg-card border border-card-border text-foreground hover:border-muted',
-  ghost: 'text-muted hover:text-foreground hover:bg-card',
-  danger: 'bg-accent-red/20 text-accent-red border border-accent-red/30 hover:bg-accent-red/30',
+  primary: 'bg-primary text-white hover:bg-primary-dark shadow-sm',
+  secondary: 'bg-white border border-card-border text-foreground hover:bg-surface shadow-sm',
+  ghost: 'text-muted hover:text-foreground hover:bg-surface',
+  danger: 'bg-accent-red text-white hover:opacity-90 shadow-sm',
 };
 
 export function Button({ variant = 'secondary', size = 'md', children, className = '', ...props }: ButtonProps) {
-  const sizeClass = size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-sm';
+  const sizeClass = size === 'sm' ? 'px-3 py-1.5 text-xs' : 'px-4 py-2 text-sm';
   return (
-    <button className={`rounded-lg transition-colors ${VARIANTS[variant]} ${sizeClass} ${className}`} {...props}>
+    <button className={`rounded-xl font-semibold transition-all ${VARIANTS[variant]} ${sizeClass} ${className}`} {...props}>
       {children}
     </button>
   );

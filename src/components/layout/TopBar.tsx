@@ -1,6 +1,7 @@
 'use client';
 import { useProfileStore } from '@/lib/stores/profileStore';
 import { useEffect } from 'react';
+import { Flame, Star } from 'lucide-react';
 
 export function TopBar() {
   const { profile, load } = useProfileStore();
@@ -13,26 +14,33 @@ export function TopBar() {
   const xpPercent = Math.min((xp / xpForNext) * 100, 100);
 
   return (
-    <header className="sticky top-0 z-40 bg-[#0d0d24]/90 backdrop-blur-sm border-b border-card-border">
-      <div className="flex items-center justify-between px-4 py-3 max-w-lg mx-auto">
-        <div className="flex items-center gap-2">
-          <span className="text-lg">{profile?.avatar || '🎮'}</span>
+    <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-card-border">
+      <div className="flex items-center justify-between px-4 py-2.5 max-w-lg mx-auto">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-sm shadow-sm">
+            {profile?.avatar || '🎮'}
+          </div>
           <div>
-            <div className="font-[family-name:var(--font-pixel)] text-[10px] text-accent-gold">
-              LVL {level}
+            <div className="text-sm font-bold text-foreground leading-tight">{profile?.name || 'Player'}</div>
+            <div className="flex items-center gap-1">
+              <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-400 to-blue-600 rounded-full transition-all"
+                  style={{ width: `${xpPercent}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-muted font-medium">Lv.{level}</span>
             </div>
-            <div className="text-xs text-muted">{profile?.name || 'Player'}</div>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="text-right">
-            <div className="text-[10px] text-accent-green font-mono">{xp} XP</div>
-            <div className="w-20 h-1.5 bg-[#1a1a2e] rounded-full overflow-hidden">
-              <div
-                className="h-full bg-accent-green rounded-full transition-all"
-                style={{ width: `${xpPercent}%` }}
-              />
-            </div>
+          <div className="flex items-center gap-1 bg-amber-50 text-amber-600 px-2 py-1 rounded-full">
+            <Flame size={12} />
+            <span className="text-[11px] font-bold">{xp}</span>
+          </div>
+          <div className="flex items-center gap-1 bg-blue-50 text-blue-600 px-2 py-1 rounded-full">
+            <Star size={12} />
+            <span className="text-[11px] font-bold">{level}</span>
           </div>
         </div>
       </div>

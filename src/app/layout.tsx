@@ -20,7 +20,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en">
       <body className={`${pixelFont.variable} antialiased`}>
         <Shell>{children}</Shell>
       </body>

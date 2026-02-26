@@ -17,53 +17,35 @@ export default function SystemPage() {
   const [newStage, setNewStage] = useState('');
   const [stats, setStats] = useState<Record<string, number>>({});
 
-  useEffect(() => {
-    loadStages();
-    loadDomains();
-    loadProfile();
-    loadStats();
-  }, [loadStages, loadDomains, loadProfile]);
+  useEffect(() => { loadStages(); loadDomains(); loadProfile(); loadStats(); }, [loadStages, loadDomains, loadProfile]);
 
   async function loadStats() {
     setStats({
-      stages: await db.lifeStages.count(),
-      campaigns: await db.campaigns.count(),
-      quests: await db.quests.count(),
-      events: await db.events.count(),
-      checkins: await db.dailyCheckins.count(),
-      reviews: await db.reviews.count(),
+      stages: await db.lifeStages.count(), campaigns: await db.campaigns.count(),
+      quests: await db.quests.count(), events: await db.events.count(),
+      checkins: await db.dailyCheckins.count(), reviews: await db.reviews.count(),
     });
   }
 
   async function exportData() {
     const data = {
-      profiles: await db.profiles.toArray(),
-      lifeStages: await db.lifeStages.toArray(),
-      domains: await db.domains.toArray(),
-      campaigns: await db.campaigns.toArray(),
-      quests: await db.quests.toArray(),
-      events: await db.events.toArray(),
-      dailyCheckins: await db.dailyCheckins.toArray(),
-      reviews: await db.reviews.toArray(),
-      rewards: await db.rewards.toArray(),
-      metrics: await db.metrics.toArray(),
+      profiles: await db.profiles.toArray(), lifeStages: await db.lifeStages.toArray(),
+      domains: await db.domains.toArray(), campaigns: await db.campaigns.toArray(),
+      quests: await db.quests.toArray(), events: await db.events.toArray(),
+      dailyCheckins: await db.dailyCheckins.toArray(), reviews: await db.reviews.toArray(),
+      rewards: await db.rewards.toArray(), metrics: await db.metrics.toArray(),
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
+    const a = document.createElement('a'); a.href = url;
     a.download = `lifeos-export-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    a.click(); URL.revokeObjectURL(url);
   }
 
   async function importData(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const text = await file.text();
-    const data = JSON.parse(text);
-    await db.delete();
-    await db.open();
+    const file = e.target.files?.[0]; if (!file) return;
+    const text = await file.text(); const data = JSON.parse(text);
+    await db.delete(); await db.open();
     for (const [table, rows] of Object.entries(data)) {
       const t = (db as unknown as Record<string, unknown>)[table];
       if (t && typeof t === 'object' && 'bulkAdd' in t) {
@@ -75,136 +57,96 @@ export default function SystemPage() {
 
   async function resetData() {
     if (!confirm('This will delete all data. Are you sure?')) return;
-    await db.delete();
-    await db.open();
-    await seedDatabase();
-    window.location.reload();
+    await db.delete(); await db.open(); await seedDatabase(); window.location.reload();
   }
 
   const handleAddStage = () => {
     if (!newStage.trim()) return;
-    addStage({
-      title: newStage.trim(),
-      description: '',
-      isActive: false,
-      order: stages.length + 1,
-      completionCriteria: [],
-    });
+    addStage({ title: newStage.trim(), description: '', isActive: false, order: stages.length + 1, completionCriteria: [] });
     setNewStage('');
   };
 
   return (
     <div className="space-y-4">
-      <h1 className="font-[family-name:var(--font-pixel)] text-xs text-accent-green">System</h1>
+      <h1 className="text-lg font-bold">System</h1>
 
-      {/* Profile */}
       <Card>
         <CardHeader>Profile</CardHeader>
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">{profile?.avatar || '🎮'}</span>
-            <input
-              className="bg-transparent border border-card-border rounded-lg px-2 py-1 text-sm focus:outline-none focus:border-accent-green"
-              value={profile?.name || ''}
-              onChange={e => updateProfile({ name: e.target.value })}
-            />
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-xl shadow-sm">
+            {profile?.avatar || '🎮'}
           </div>
-          <div className="text-xs text-muted">
-            Level {profile?.level || 1} · {profile?.xp || 0} XP
+          <div className="flex-1">
+            <input className="bg-surface border border-card-border rounded-xl px-3 py-1.5 text-sm font-semibold w-full focus:outline-none focus:ring-2 focus:ring-blue-200"
+              value={profile?.name || ''} onChange={e => updateProfile({ name: e.target.value })} />
+            <div className="text-xs text-muted mt-1 font-medium">Level {profile?.level || 1} · {profile?.xp || 0} XP</div>
           </div>
         </div>
       </Card>
 
-      {/* Life Stages */}
       <Card>
         <CardHeader>Life Stages</CardHeader>
         <div className="space-y-2 mb-3">
           {stages.map(s => (
-            <div key={s.id} className="flex items-center gap-2">
-              <button
-                onClick={() => setActive(s.id!)}
-                className={`w-3 h-3 rounded-full border-2 ${s.isActive ? 'border-accent-green bg-accent-green' : 'border-card-border'}`}
-              />
-              <span className={`text-sm flex-1 ${s.isActive ? 'text-accent-green' : ''}`}>{s.title}</span>
+            <div key={s.id} className="flex items-center gap-2 bg-surface rounded-xl p-2.5">
+              <button onClick={() => setActive(s.id!)}
+                className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                  s.isActive ? 'border-blue-500 bg-blue-500' : 'border-gray-300 hover:border-blue-300'
+                }`}>{s.isActive && <div className="w-2 h-2 rounded-full bg-white" />}</button>
+              <span className={`text-sm font-medium flex-1 ${s.isActive ? 'text-blue-600' : ''}`}>{s.title}</span>
               {!s.isActive && (
-                <button onClick={() => removeStage(s.id!)} className="text-muted hover:text-accent-red">
-                  <Trash2 size={12} />
-                </button>
+                <button onClick={() => removeStage(s.id!)} className="text-muted hover:text-red-500 p-1"><Trash2 size={14} /></button>
               )}
             </div>
           ))}
         </div>
         <div className="flex gap-2">
-          <input
-            className="flex-1 bg-transparent border border-card-border rounded-lg px-2 py-1 text-sm focus:outline-none focus:border-accent-green"
-            placeholder="New stage..."
-            value={newStage}
-            onChange={e => setNewStage(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleAddStage()}
-          />
-          <Button size="sm" variant="primary" onClick={handleAddStage}>
-            <Plus size={14} />
-          </Button>
+          <input className="flex-1 bg-surface border border-card-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+            placeholder="New stage..." value={newStage} onChange={e => setNewStage(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleAddStage()} />
+          <Button size="sm" variant="primary" onClick={handleAddStage}><Plus size={14} /></Button>
         </div>
       </Card>
 
-      {/* Domain Health */}
       <Card>
         <CardHeader>Domain Health</CardHeader>
         <div className="space-y-3">
           {domains.map(d => (
             <div key={d.id}>
-              <div className="flex items-center justify-between text-sm mb-1">
-                <span>{d.name}</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  className="w-12 bg-transparent border border-card-border rounded px-1 py-0.5 text-xs text-right focus:outline-none"
-                  value={d.healthScore}
-                  onChange={e => updateDomain(d.id!, { healthScore: parseInt(e.target.value) || 0 })}
-                />
+              <div className="flex items-center justify-between text-sm mb-1.5">
+                <span className="font-medium">{d.name}</span>
+                <input type="number" min={0} max={100}
+                  className="w-14 bg-surface border border-card-border rounded-lg px-2 py-1 text-xs text-right font-bold focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  value={d.healthScore} onChange={e => updateDomain(d.id!, { healthScore: parseInt(e.target.value) || 0 })} />
               </div>
-              <ProgressBar
-                value={d.healthScore}
-                color={d.healthScore >= 70 ? 'var(--accent-green)' : d.healthScore >= 40 ? 'var(--accent-gold)' : 'var(--accent-red)'}
-              />
+              <ProgressBar value={d.healthScore} height={6}
+                color={d.healthScore >= 70 ? '#22c55e' : d.healthScore >= 40 ? '#f59e0b' : '#ef4444'} />
             </div>
           ))}
         </div>
       </Card>
 
-      {/* Diagnostics */}
       <Card>
-        <CardHeader>
-          <div className="flex items-center gap-1"><Database size={12} /> Diagnostics</div>
-        </CardHeader>
+        <CardHeader><div className="flex items-center gap-1"><Database size={12} /> Diagnostics</div></CardHeader>
         <div className="grid grid-cols-3 gap-2 text-center">
           {Object.entries(stats).map(([key, val]) => (
-            <div key={key} className="bg-background rounded-lg p-2">
-              <div className="text-lg font-mono text-accent-cyan">{val}</div>
-              <div className="text-[10px] text-muted capitalize">{key}</div>
+            <div key={key} className="bg-surface rounded-xl p-2.5">
+              <div className="text-lg font-bold text-primary">{val}</div>
+              <div className="text-[10px] text-muted font-semibold capitalize">{key}</div>
             </div>
           ))}
         </div>
       </Card>
 
-      {/* Data Management */}
       <Card>
         <CardHeader>Data</CardHeader>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" onClick={exportData}>
-            <Download size={12} className="mr-1" /> Export
-          </Button>
+          <Button size="sm" onClick={exportData}><Download size={12} className="mr-1" /> Export</Button>
           <label className="cursor-pointer">
-            <Button size="sm" as-child>
-              <span><Upload size={12} className="mr-1 inline" /> Import</span>
-            </Button>
+            <Button size="sm" as-child><span><Upload size={12} className="mr-1 inline" /> Import</span></Button>
             <input type="file" accept=".json" className="hidden" onChange={importData} />
           </label>
-          <Button size="sm" variant="danger" onClick={resetData}>
-            <RefreshCw size={12} className="mr-1" /> Reset
-          </Button>
+          <Button size="sm" variant="danger" onClick={resetData}><RefreshCw size={12} className="mr-1" /> Reset</Button>
         </div>
       </Card>
     </div>

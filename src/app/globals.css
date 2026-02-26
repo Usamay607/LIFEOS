@@ -1,18 +1,21 @@
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Press+Start+2P&display=swap');
 @import "tailwindcss";
 
 :root {
-  --background: #0a0a1a;
-  --foreground: #e0e0e0;
-  --card: #111128;
-  --card-border: #1e1e3a;
-  --accent-green: #00ff88;
-  --accent-gold: #ffd700;
-  --accent-red: #ff4466;
-  --accent-blue: #4488ff;
-  --accent-purple: #aa66ff;
-  --accent-cyan: #00ccff;
-  --muted: #666688;
+  --background: #f0f2f5;
+  --foreground: #1a1a2e;
+  --card: #ffffff;
+  --card-border: #e8eaf0;
+  --accent-green: #22c55e;
+  --accent-gold: #f59e0b;
+  --accent-red: #ef4444;
+  --accent-blue: #3b82f6;
+  --accent-purple: #8b5cf6;
+  --accent-cyan: #06b6d4;
+  --muted: #94a3b8;
+  --primary: #3b82f6;
+  --primary-dark: #2563eb;
+  --surface: #f8fafc;
 }
 
 @theme inline {
@@ -27,38 +30,41 @@
   --color-accent-purple: var(--accent-purple);
   --color-accent-cyan: var(--accent-cyan);
   --color-muted: var(--muted);
+  --color-primary: var(--primary);
+  --color-primary-dark: var(--primary-dark);
+  --color-surface: var(--surface);
   --font-pixel: 'Press Start 2P', monospace;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
 }
 
 .xp-bar {
-  background: #1a1a2e;
-  border-radius: 4px;
+  background: #e2e8f0;
+  border-radius: 999px;
   overflow: hidden;
-  height: 8px;
 }
 .xp-bar-fill {
   height: 100%;
-  border-radius: 4px;
+  border-radius: 999px;
   transition: width 0.5s ease;
 }
 
-.glow-card {
+.game-card {
   background: var(--card);
-  border: 1px solid var(--card-border);
-  border-radius: 12px;
-  transition: border-color 0.2s;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  transition: box-shadow 0.2s, transform 0.15s;
 }
-.glow-card:hover {
-  border-color: #2a2a4a;
+.game-card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
 }
 
-::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }

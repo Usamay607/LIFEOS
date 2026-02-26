@@ -1,9 +1,8 @@
 'use client';
 import { useEffect } from 'react';
 import { Check, ChevronRight, Star } from 'lucide-react';
-import { Card, CardHeader } from '@/components/ui/Card';
+import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import { ProgressBar } from '@/components/ui/ProgressBar';
 import { useStageStore } from '@/lib/stores/stageStore';
 import { useCampaignStore } from '@/lib/stores/campaignStore';
 
@@ -11,78 +10,62 @@ export default function LifeMapPage() {
   const { stages, activeStage, load: loadStages } = useStageStore();
   const { campaigns, load: loadCampaigns } = useCampaignStore();
 
-  useEffect(() => {
-    loadStages();
-    loadCampaigns();
-  }, [loadStages, loadCampaigns]);
+  useEffect(() => { loadStages(); loadCampaigns(); }, [loadStages, loadCampaigns]);
 
   return (
     <div className="space-y-4">
-      <h1 className="font-[family-name:var(--font-pixel)] text-xs text-accent-green">Life Map</h1>
+      <h1 className="text-lg font-bold">Life Map</h1>
 
-      {/* Stage Timeline */}
       <div className="relative">
         {stages.map((stage, i) => {
           const isActive = stage.id === activeStage?.id;
           const stageCampaigns = campaigns.filter(c => c.stageId === stage.id);
           const completedCampaigns = stageCampaigns.filter(c => c.status === 'completed').length;
-          const totalCriteria = stage.completionCriteria.length;
+          const allDone = completedCampaigns === stageCampaigns.length && stageCampaigns.length > 0;
 
           return (
-            <div key={stage.id} className="relative pl-8 pb-8 last:pb-0">
-              {/* Timeline line */}
+            <div key={stage.id} className="relative pl-10 pb-8 last:pb-0">
               {i < stages.length - 1 && (
-                <div className="absolute left-[13px] top-6 bottom-0 w-0.5 bg-card-border" />
+                <div className="absolute left-[15px] top-8 bottom-0 w-0.5 bg-gray-200" />
               )}
-
-              {/* Node */}
-              <div className={`absolute left-0 top-0 w-7 h-7 rounded-full flex items-center justify-center border-2 ${
-                isActive
-                  ? 'border-accent-green bg-accent-green/20'
-                  : completedCampaigns === stageCampaigns.length && stageCampaigns.length > 0
-                    ? 'border-accent-gold bg-accent-gold/20'
-                    : 'border-card-border bg-card'
+              <div className={`absolute left-0 top-1 w-8 h-8 rounded-full flex items-center justify-center border-2 shadow-sm ${
+                isActive ? 'border-blue-500 bg-blue-50' : allDone ? 'border-green-500 bg-green-50' : 'border-gray-200 bg-white'
               }`}>
-                {isActive ? (
-                  <Star size={12} className="text-accent-green" />
-                ) : completedCampaigns === stageCampaigns.length && stageCampaigns.length > 0 ? (
-                  <Check size={12} className="text-accent-gold" />
-                ) : (
-                  <span className="text-[10px] text-muted">{i + 1}</span>
-                )}
+                {isActive ? <Star size={14} className="text-blue-500" />
+                  : allDone ? <Check size={14} className="text-green-500" />
+                  : <span className="text-xs font-bold text-muted">{i + 1}</span>}
               </div>
 
-              {/* Stage Card */}
-              <Card glowColor={isActive ? 'var(--accent-green)' : undefined}>
+              <Card glowColor={isActive ? '#3b82f6' : undefined}>
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-semibold">{stage.title}</span>
+                  <span className="text-sm font-bold">{stage.title}</span>
                   {isActive && <Badge label="active" />}
                 </div>
                 <p className="text-xs text-muted mb-3">{stage.description}</p>
 
-                {/* Completion Criteria */}
-                {totalCriteria > 0 && (
+                {stage.completionCriteria.length > 0 && (
                   <div className="mb-3">
-                    <div className="text-[10px] text-muted uppercase mb-1">Completion Criteria</div>
+                    <div className="text-[10px] font-bold text-muted uppercase mb-1.5">Completion Criteria</div>
                     {stage.completionCriteria.map((c, j) => (
-                      <div key={j} className="flex items-center gap-1.5 text-xs ml-1">
-                        <div className={`w-3 h-3 rounded-sm border ${j < completedCampaigns ? 'bg-accent-green/30 border-accent-green' : 'border-card-border'}`} />
-                        <span className={j < completedCampaigns ? 'text-accent-green' : 'text-foreground/70'}>{c}</span>
+                      <div key={j} className="flex items-center gap-2 text-xs mb-1">
+                        <div className={`w-4 h-4 rounded flex items-center justify-center ${j < completedCampaigns ? 'bg-green-100' : 'bg-gray-100'}`}>
+                          {j < completedCampaigns && <Check size={10} className="text-green-600" />}
+                        </div>
+                        <span className={j < completedCampaigns ? 'text-green-700 font-medium' : 'text-foreground/70'}>{c}</span>
                       </div>
                     ))}
                   </div>
                 )}
 
-                {/* Linked Campaigns */}
                 {stageCampaigns.length > 0 && (
                   <div>
-                    <div className="text-[10px] text-muted uppercase mb-1">Campaigns</div>
+                    <div className="text-[10px] font-bold text-muted uppercase mb-1.5">Campaigns</div>
                     {stageCampaigns.map(c => (
-                      <div key={c.id} className="flex items-center gap-2 mb-1">
+                      <div key={c.id} className="flex items-center gap-2 mb-1.5 bg-surface rounded-lg p-2">
                         <ChevronRight size={10} className="text-muted" />
-                        <span className="text-xs">{c.title}</span>
+                        <span className="text-xs font-medium">{c.title}</span>
                         <Badge label={c.status} className="ml-auto" />
-                        <span className="text-[10px] text-muted">{c.progress}%</span>
+                        <span className="text-[10px] font-bold text-muted">{c.progress}%</span>
                       </div>
                     ))}
                   </div>
@@ -91,7 +74,6 @@ export default function LifeMapPage() {
             </div>
           );
         })}
-
         {stages.length === 0 && (
           <p className="text-center text-muted text-sm py-8">No life stages defined. Create one in System.</p>
         )}

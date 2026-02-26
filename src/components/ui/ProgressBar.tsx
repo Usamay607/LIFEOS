@@ -1,7 +1,7 @@
 'use client';
 
 interface ProgressBarProps {
-  value: number; // 0-100
+  value: number;
   color?: string;
   height?: number;
   showLabel?: boolean;
@@ -15,7 +15,7 @@ export function ProgressBar({ value, color = 'var(--accent-green)', height = 8, 
       {showLabel && (
         <div className="flex justify-between text-xs text-muted mb-1">
           <span>{label}</span>
-          <span>{clamped}%</span>
+          <span className="font-semibold">{clamped}%</span>
         </div>
       )}
       <div className="xp-bar" style={{ height }}>

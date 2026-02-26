@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Target, Plus, Pin, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Pin, ChevronDown, ChevronUp } from 'lucide-react';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { Badge } from '@/components/ui/Badge';
@@ -15,7 +15,7 @@ const FILTERS: CampaignStatus[] = ['active', 'planned', 'blocked', 'completed', 
 
 export default function CampaignsPage() {
   const { campaigns, load: loadCampaigns, pin, setStatus, add } = useCampaignStore();
-  const { quests, load: loadQuests, getByCampaign } = useQuestStore();
+  const { load: loadQuests, getByCampaign } = useQuestStore();
   const { domains, load: loadDomains } = useDomainStore();
   const { activeStage, load: loadStages } = useStageStore();
   const [filter, setFilter] = useState<CampaignStatus | 'all'>('all');
@@ -35,15 +35,8 @@ export default function CampaignsPage() {
   const handleAdd = () => {
     if (!newTitle.trim() || !activeStage?.id) return;
     add({
-      stageId: activeStage.id,
-      title: newTitle.trim(),
-      description: '',
-      status: 'planned',
-      progress: 0,
-      isPinned: false,
-      milestones: [],
-      dependencies: [],
-      domainId: domains[0]?.id || 0,
+      stageId: activeStage.id, title: newTitle.trim(), description: '', status: 'planned',
+      progress: 0, isPinned: false, milestones: [], dependencies: [], domainId: domains[0]?.id || 0,
     });
     setNewTitle('');
     setShowAdd(false);
@@ -52,9 +45,9 @@ export default function CampaignsPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="font-[family-name:var(--font-pixel)] text-xs text-accent-green">Campaigns</h1>
+        <h1 className="text-lg font-bold">Campaigns</h1>
         <Button variant="primary" size="sm" onClick={() => setShowAdd(v => !v)}>
-          <Plus size={14} />
+          <Plus size={14} className="mr-1" /> New
         </Button>
       </div>
 
@@ -62,7 +55,7 @@ export default function CampaignsPage() {
         <Card>
           <div className="flex gap-2">
             <input
-              className="flex-1 bg-transparent border border-card-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent-green"
+              className="flex-1 bg-surface border border-card-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
               placeholder="Campaign title..."
               value={newTitle}
               onChange={e => setNewTitle(e.target.value)}
@@ -76,19 +69,17 @@ export default function CampaignsPage() {
 
       {/* Filters */}
       <div className="flex gap-1.5 overflow-x-auto pb-1">
-        <button
-          onClick={() => setFilter('all')}
-          className={`px-2.5 py-1 rounded-full text-xs whitespace-nowrap transition-colors ${filter === 'all' ? 'bg-accent-green/20 text-accent-green' : 'text-muted hover:text-foreground'}`}
-        >
-          All ({campaigns.length})
-        </button>
-        {FILTERS.map(f => {
-          const count = campaigns.filter(c => c.status === f).length;
+        {(['all', ...FILTERS] as const).map(f => {
+          const count = f === 'all' ? campaigns.length : campaigns.filter(c => c.status === f).length;
           return (
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`px-2.5 py-1 rounded-full text-xs whitespace-nowrap capitalize transition-colors ${filter === f ? 'bg-accent-green/20 text-accent-green' : 'text-muted hover:text-foreground'}`}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap capitalize transition-all ${
+                filter === f
+                  ? 'bg-primary text-white shadow-sm'
+                  : 'bg-white text-muted hover:text-foreground shadow-sm border border-card-border'
+              }`}
             >
               {f} ({count})
             </button>
@@ -104,17 +95,17 @@ export default function CampaignsPage() {
           const domain = domains.find(d => d.id === c.domainId);
 
           return (
-            <Card key={c.id} glowColor={c.isPinned ? 'var(--accent-gold)' : undefined}>
-              <div className="flex items-start justify-between" onClick={() => setExpanded(isExpanded ? null : c.id!)}>
-                <div className="flex-1 cursor-pointer">
-                  <div className="flex items-center gap-2 mb-1">
-                    {c.isPinned && <Pin size={12} className="text-accent-gold" />}
-                    <span className="text-sm font-semibold">{c.title}</span>
+            <Card key={c.id} glowColor={c.isPinned ? '#f59e0b' : undefined}>
+              <div className="flex items-start justify-between cursor-pointer" onClick={() => setExpanded(isExpanded ? null : c.id!)}>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    {c.isPinned && <Pin size={12} className="text-amber-500" />}
+                    <span className="text-sm font-bold">{c.title}</span>
                     <Badge label={c.status} />
                   </div>
-                  <ProgressBar value={c.progress} showLabel label={domain?.name || ''} />
+                  <ProgressBar value={c.progress} showLabel label={domain?.name || ''} height={6} color={c.isPinned ? '#f59e0b' : '#3b82f6'} />
                 </div>
-                <button className="p-1 text-muted">
+                <button className="p-1 text-muted ml-2">
                   {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                 </button>
               </div>
@@ -125,7 +116,7 @@ export default function CampaignsPage() {
 
                   {c.milestones.length > 0 && (
                     <div>
-                      <div className="text-[10px] text-muted uppercase mb-1">Milestones</div>
+                      <div className="text-[10px] font-bold text-muted uppercase mb-1">Milestones</div>
                       {c.milestones.map((m, i) => (
                         <div key={i} className="text-xs text-foreground/80 ml-2">• {m}</div>
                       ))}
@@ -134,11 +125,11 @@ export default function CampaignsPage() {
 
                   {cQuests.length > 0 && (
                     <div>
-                      <div className="text-[10px] text-muted uppercase mb-1">Quests ({cQuests.length})</div>
+                      <div className="text-[10px] font-bold text-muted uppercase mb-1">Quests ({cQuests.length})</div>
                       {cQuests.slice(0, 5).map(q => (
-                        <div key={q.id} className="flex items-center gap-2 ml-2 text-xs">
+                        <div key={q.id} className="flex items-center gap-2 ml-2 text-xs bg-surface rounded-lg p-1.5 mb-1">
                           <Badge label={q.type} />
-                          <span>{q.title}</span>
+                          <span className="font-medium">{q.title}</span>
                           <Badge label={q.status} className="ml-auto" />
                         </div>
                       ))}
