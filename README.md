@@ -1,36 +1,88 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# LOS (Life Operating System) v1
 
-## Getting Started
+Notion-first relational backend + lightweight Next.js dashboard for focus-first daily execution.
 
-First, run the development server:
+## What is implemented
+- Monorepo layout with:
+  - `apps/web`: LOS dashboard UI + API routes
+  - `packages/types`: shared domain contracts
+  - `packages/notion`: service layer, mock seed, Notion integration, automations, redaction
+- Core modules:
+  - Entities
+  - Projects
+  - Tasks
+  - Projects + Tasks workflow workspace
+  - Journal
+  - LOS Assistant (read-only)
+  - Guided Weekly Review (20-minute workflow)
+  - Launch Readiness Checklist
+  - Startup Hub (go-live readiness)
+  - Finance runway
+  - Learning pathways/courses
+  - Accounts (vault references only)
+  - Health + Training overview (logs + workouts + weekly trends)
+  - Family + Events overview (milestones + relationship cadence)
+  - Transition + Time-Off overview (readiness + pre-sabbatical plans)
+- Required APIs:
+  - `GET /api/dashboard/home`
+  - `GET /api/accounts`
+  - `POST /api/assistant/query`
+  - `GET /api/system/readiness`
+  - `GET /api/journal`
+  - `POST /api/journal`
+  - `GET /api/entities`
+  - `PATCH /api/entities/:id`
+  - `GET /api/projects?status=...`
+  - `POST /api/tasks`
+  - `PATCH /api/tasks/:id`
+  - `GET /api/finance/runway`
+  - `GET /api/health/overview`
+  - `GET /api/learning/overview`
+  - `GET /api/family/overview`
+  - `GET /api/transition/overview`
+  - `POST /api/reviews/weekly-summary`
+  - `POST /api/hooks/task-completed`
+- Optional dashboard auth gate via `LOS_DASHBOARD_PIN`.
 
+## Security defaults
+- No passwords stored in LOS.
+- Accounts store only 1Password reference fields (`vault_item_url`, optional `vault_item_id`).
+- Weekly AI summary uses strict redaction by default.
+
+## Quick start
+1. Install dependencies:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
+```
+2. Copy env file:
+```bash
+cp .env.example .env
+```
+3. Run with mock seed data:
+```bash
 pnpm dev
-# or
-bun dev
+```
+4. Open [http://localhost:3000](http://localhost:3000)
+
+## Run checks
+```bash
+pnpm test
+pnpm lint
+pnpm typecheck
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Notion mode
+1. Set `LOS_DATA_MODE=notion`.
+2. Fill all `NOTION_DATABASE_*_ID` values in `.env`.
+3. Ensure schemas match [docs/NOTION_SCHEMA.md](./docs/NOTION_SCHEMA.md).
+4. (Optional) Seed starter pack to Notion:
+```bash
+pnpm --filter @los/notion seed:notion
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Design notes
+- Bento layout with progressive disclosure.
+- Finance card follows the supplied cashflow concept.
+- Mobile + desktop parity is supported in the same code paths.
+- PWA polish included: install prompt, app shortcuts, offline fallback route (`/offline`), and mobile quick actions.
+- App-level fallback UX included for runtime and not-found errors.

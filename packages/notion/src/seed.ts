@@ -1,0 +1,551 @@
+import type {
+  AccountRef,
+  Area,
+  CourseCert,
+  Entity,
+  FamilyEvent,
+  HealthDailyLog,
+  JournalEntry,
+  LosDataSnapshot,
+  MetricPoint,
+  Pathway,
+  Project,
+  RelationshipCheckin,
+  ReviewNote,
+  Task,
+  TimeOffPlan,
+  Transaction,
+  UpcomingExpense,
+  WorkoutSession,
+} from "@los/types";
+
+const now = new Date();
+const iso = (deltaDays = 0) => {
+  const d = new Date(now);
+  d.setDate(d.getDate() + deltaDays);
+  return d.toISOString();
+};
+
+export const STARTER_AREAS: Area[] = [
+  { id: "area_finance", name: "Finances & Cashflow", color: "EMERALD", active: true },
+  { id: "area_work", name: "Work & Projects", color: "ORANGE", active: true },
+  { id: "area_learning", name: "Learning & Certifications", color: "PURPLE", active: true },
+  { id: "area_health", name: "Health & Training", color: "BLUE", active: true },
+  { id: "area_identity", name: "Life Admin & Identity", color: "SLATE", active: true },
+  { id: "area_family", name: "Family & Relationships", color: "ROSE", active: true },
+  { id: "area_timeoff", name: "Time-Off / Transition", color: "ROSE", active: true },
+  { id: "area_system", name: "System / Review", color: "SLATE", active: true },
+];
+
+export const STARTER_ENTITIES: Entity[] = [
+  { id: "ent_personal", name: "Personal", areaId: "area_identity", type: "PERSONAL", status: "ACTIVE", priority: 5 },
+  { id: "ent_los", name: "LOS", areaId: "area_work", type: "PROJECT", status: "ACTIVE", priority: 5 },
+  { id: "ent_portmans", name: "Portman's Institute", areaId: "area_work", type: "BUSINESS", status: "ACTIVE", priority: 4 },
+  { id: "ent_locum", name: "Locum Income", areaId: "area_finance", type: "ROLE", status: "ACTIVE", priority: 4 },
+  { id: "ent_investing", name: "Investing", areaId: "area_finance", type: "PROJECT", status: "ACTIVE", priority: 3 },
+  { id: "ent_hmr", name: "HMR Pathway", areaId: "area_learning", type: "PROJECT", status: "ACTIVE", priority: 4 },
+  { id: "ent_fitness", name: "Fitness", areaId: "area_health", type: "PERSONAL", status: "ACTIVE", priority: 3 },
+  { id: "ent_family", name: "Family Admin", areaId: "area_family", type: "ADMIN", status: "ACTIVE", priority: 5 },
+  { id: "ent_timeoff", name: "Time Off Transition", areaId: "area_timeoff", type: "PROJECT", status: "ACTIVE", priority: 4 },
+  { id: "ent_products", name: "Build Products", areaId: "area_work", type: "PROJECT", status: "DORMANT", priority: 2 },
+  { id: "ent_ops", name: "Ops & Compliance", areaId: "area_system", type: "ADMIN", status: "ACTIVE", priority: 3 },
+];
+
+export const STARTER_PATHWAYS: Pathway[] = [
+  { id: "path_fullstack", title: "Full-Stack Systems", status: "ACTIVE", progressPercent: 42 },
+  { id: "path_hmr", title: "HMR Accreditation", status: "ACTIVE", progressPercent: 65 },
+  { id: "path_finance", title: "Personal Finance Mastery", status: "ACTIVE", progressPercent: 35 },
+];
+
+export const STARTER_COURSES: CourseCert[] = [
+  {
+    id: "course_hmr_core",
+    title: "HMR Core Certification",
+    pathwayId: "path_hmr",
+    status: "IN_PROGRESS",
+    targetDate: iso(24),
+    estimatedHours: 80,
+    completedHours: 52,
+    proofUrls: [],
+    appliedProjectIds: ["proj_hmr_launch"],
+    appliedProgressPercent: 60,
+  },
+  {
+    id: "course_next_arch",
+    title: "Next.js Architecture Deep Dive",
+    pathwayId: "path_fullstack",
+    status: "IN_PROGRESS",
+    targetDate: iso(15),
+    estimatedHours: 45,
+    completedHours: 30,
+    proofUrls: [],
+    appliedProjectIds: ["proj_los_v1"],
+    appliedProgressPercent: 45,
+  },
+  {
+    id: "course_cashflow",
+    title: "Cashflow Forecasting",
+    pathwayId: "path_finance",
+    status: "NOT_STARTED",
+    targetDate: iso(40),
+    estimatedHours: 25,
+    completedHours: 2,
+    proofUrls: [],
+    appliedProjectIds: ["proj_finance_reset"],
+    appliedProgressPercent: 10,
+  },
+];
+
+export const STARTER_PROJECTS: Project[] = [
+  {
+    id: "proj_los_v1",
+    name: "LOS v1 Build",
+    entityId: "ent_los",
+    status: "ACTIVE",
+    nextMilestone: "Deliver Notion schemas and dashboard shell",
+    deadline: iso(12),
+    skillsUsedCourseIds: ["course_next_arch"],
+  },
+  {
+    id: "proj_hmr_launch",
+    name: "HMR Launch Plan",
+    entityId: "ent_hmr",
+    status: "ACTIVE",
+    nextMilestone: "Finalize certification evidence and schedule exam",
+    deadline: iso(21),
+    skillsUsedCourseIds: ["course_hmr_core"],
+  },
+  {
+    id: "proj_finance_reset",
+    name: "Finance System Reset",
+    entityId: "ent_investing",
+    status: "ON_HOLD",
+    nextMilestone: "Consolidate monthly cashflow categories",
+    deadline: iso(30),
+    skillsUsedCourseIds: ["course_cashflow"],
+  },
+];
+
+export const STARTER_TASKS: Task[] = [
+  {
+    id: "task_1",
+    title: "Create Notion Areas + Entities databases",
+    projectId: "proj_los_v1",
+    status: "NEXT",
+    dueDate: iso(1),
+    energy: "HIGH",
+    context: "LAPTOP",
+    recurring: false,
+    createdAt: iso(-1),
+  },
+  {
+    id: "task_2",
+    title: "Link starter accounts with vault references",
+    projectId: "proj_los_v1",
+    status: "DOING",
+    dueDate: iso(0),
+    energy: "MEDIUM",
+    context: "LAPTOP",
+    recurring: false,
+    createdAt: iso(-2),
+  },
+  {
+    id: "task_3",
+    title: "Schedule HMR exam prep blocks",
+    projectId: "proj_hmr_launch",
+    status: "NEXT",
+    dueDate: iso(3),
+    energy: "MEDIUM",
+    context: "CALLS",
+    recurring: false,
+    createdAt: iso(-2),
+  },
+  {
+    id: "task_4",
+    title: "Review top monthly expenses",
+    projectId: "proj_finance_reset",
+    status: "WAITING",
+    dueDate: iso(5),
+    energy: "LOW",
+    context: "LAPTOP",
+    recurring: false,
+    createdAt: iso(-3),
+  },
+  {
+    id: "task_5",
+    title: "Daily planning check-in",
+    projectId: "proj_los_v1",
+    status: "NEXT",
+    dueDate: iso(0),
+    energy: "LOW",
+    context: "PHONE",
+    recurring: true,
+    createdAt: iso(-10),
+  },
+];
+
+export const STARTER_ACCOUNTS: AccountRef[] = [
+  {
+    id: "acc_1",
+    service: "Google Workspace",
+    entityId: "ent_portmans",
+    loginIdentifier: "ops@portmans.example",
+    role: "OWNER",
+    twoFactorEnabled: true,
+    vaultItemUrl: "https://start.1password.com/open/i?a=example&v=item-1",
+    vaultItemId: "item-1",
+    lastRotated: iso(-50),
+  },
+  {
+    id: "acc_2",
+    service: "AWS",
+    entityId: "ent_los",
+    loginIdentifier: "admin@los.example",
+    role: "ADMIN",
+    twoFactorEnabled: true,
+    vaultItemUrl: "https://start.1password.com/open/i?a=example&v=item-2",
+    vaultItemId: "item-2",
+    lastRotated: iso(-20),
+  },
+  {
+    id: "acc_3",
+    service: "Xero",
+    entityId: "ent_locum",
+    loginIdentifier: "finance@locum.example",
+    role: "OWNER",
+    twoFactorEnabled: true,
+    vaultItemUrl: "https://start.1password.com/open/i?a=example&v=item-3",
+    vaultItemId: "item-3",
+    lastRotated: iso(-12),
+  },
+];
+
+export const STARTER_TRANSACTIONS: Transaction[] = [
+  { id: "txn_1", date: iso(-25), amount: 9200, type: "INCOME", entityId: "ent_locum", category: "Salary" },
+  { id: "txn_2", date: iso(-20), amount: 4200, type: "INCOME", entityId: "ent_portmans", category: "Business Revenue" },
+  { id: "txn_3", date: iso(-10), amount: 1800, type: "EXPENSE", entityId: "ent_personal", category: "Living" },
+  { id: "txn_4", date: iso(-7), amount: 750, type: "EXPENSE", entityId: "ent_los", category: "Software" },
+  { id: "txn_5", date: iso(-2), amount: 1250, type: "EXPENSE", entityId: "ent_portmans", category: "Insurance" },
+  { id: "txn_6", date: iso(-1), amount: 420, type: "EXPENSE", entityId: "ent_personal", category: "Books" },
+];
+
+export const STARTER_UPCOMING_EXPENSES: UpcomingExpense[] = [
+  {
+    id: "bill_1",
+    bill: "Credit Card Bill",
+    amount: 1250,
+    dueDate: iso(4),
+    frequency: "MONTHLY",
+    entityId: "ent_personal",
+    paid: false,
+  },
+  {
+    id: "bill_2",
+    bill: "Business Insurance",
+    amount: 890,
+    dueDate: iso(7),
+    frequency: "MONTHLY",
+    entityId: "ent_portmans",
+    paid: false,
+  },
+  {
+    id: "bill_3",
+    bill: "Cloud Hosting",
+    amount: 240,
+    dueDate: iso(2),
+    frequency: "MONTHLY",
+    entityId: "ent_los",
+    paid: false,
+  },
+];
+
+export const STARTER_METRICS: MetricPoint[] = [
+  {
+    id: "met_1",
+    metricName: "Liquid Assets",
+    category: "FINANCE",
+    value: 112_600,
+    unit: "AUD",
+    date: iso(-1),
+    entityId: "ent_personal",
+  },
+  {
+    id: "met_2",
+    metricName: "Net Worth",
+    category: "FINANCE",
+    value: 1_452_870,
+    unit: "AUD",
+    date: iso(-1),
+    entityId: "ent_personal",
+  },
+];
+
+export const STARTER_HEALTH_LOGS: HealthDailyLog[] = [
+  {
+    id: "health_1",
+    date: iso(-6),
+    entityId: "ent_fitness",
+    steps: 10120,
+    sleepHours: 7.1,
+    restingHeartRate: 60,
+    hydrationLiters: 2.6,
+    recoveryScore: 71,
+    weightKg: 82.4,
+  },
+  {
+    id: "health_2",
+    date: iso(-5),
+    entityId: "ent_fitness",
+    steps: 8820,
+    sleepHours: 6.7,
+    restingHeartRate: 62,
+    hydrationLiters: 2.4,
+    recoveryScore: 66,
+    weightKg: 82.3,
+  },
+  {
+    id: "health_3",
+    date: iso(-4),
+    entityId: "ent_fitness",
+    steps: 11540,
+    sleepHours: 7.5,
+    restingHeartRate: 59,
+    hydrationLiters: 2.9,
+    recoveryScore: 76,
+    weightKg: 82.1,
+  },
+  {
+    id: "health_4",
+    date: iso(-3),
+    entityId: "ent_fitness",
+    steps: 9730,
+    sleepHours: 7.2,
+    restingHeartRate: 60,
+    hydrationLiters: 2.7,
+    recoveryScore: 73,
+    weightKg: 82.0,
+  },
+  {
+    id: "health_5",
+    date: iso(-2),
+    entityId: "ent_fitness",
+    steps: 12040,
+    sleepHours: 7.8,
+    restingHeartRate: 58,
+    hydrationLiters: 3.0,
+    recoveryScore: 80,
+    weightKg: 81.9,
+  },
+  {
+    id: "health_6",
+    date: iso(-1),
+    entityId: "ent_fitness",
+    steps: 10910,
+    sleepHours: 7.4,
+    restingHeartRate: 58,
+    hydrationLiters: 2.8,
+    recoveryScore: 78,
+    weightKg: 81.8,
+  },
+];
+
+export const STARTER_WORKOUTS: WorkoutSession[] = [
+  {
+    id: "workout_1",
+    date: iso(-6),
+    entityId: "ent_fitness",
+    sessionType: "STRENGTH",
+    intensity: "HIGH",
+    durationMinutes: 65,
+    volumeLoadKg: 12450,
+  },
+  {
+    id: "workout_2",
+    date: iso(-4),
+    entityId: "ent_fitness",
+    sessionType: "CARDIO",
+    intensity: "MEDIUM",
+    durationMinutes: 42,
+  },
+  {
+    id: "workout_3",
+    date: iso(-3),
+    entityId: "ent_fitness",
+    sessionType: "MOBILITY",
+    intensity: "LOW",
+    durationMinutes: 28,
+  },
+  {
+    id: "workout_4",
+    date: iso(-1),
+    entityId: "ent_fitness",
+    sessionType: "STRENGTH",
+    intensity: "HIGH",
+    durationMinutes: 70,
+    volumeLoadKg: 13120,
+  },
+];
+
+export const STARTER_FAMILY_EVENTS: FamilyEvent[] = [
+  {
+    id: "family_event_1",
+    title: "Mum Birthday Dinner",
+    date: iso(5),
+    category: "BIRTHDAY",
+    importance: "HIGH",
+    entityId: "ent_family",
+  },
+  {
+    id: "family_event_2",
+    title: "Family Catch-up Call",
+    date: iso(2),
+    category: "FAMILY",
+    importance: "MEDIUM",
+    entityId: "ent_family",
+  },
+  {
+    id: "family_event_3",
+    title: "Anniversary Planning",
+    date: iso(18),
+    category: "ANNIVERSARY",
+    importance: "HIGH",
+    entityId: "ent_family",
+  },
+];
+
+export const STARTER_RELATIONSHIP_CHECKINS: RelationshipCheckin[] = [
+  {
+    id: "checkin_1",
+    person: "Mum",
+    relationType: "FAMILY",
+    lastMeaningfulContact: iso(-3),
+    targetCadenceDays: 7,
+    entityId: "ent_family",
+  },
+  {
+    id: "checkin_2",
+    person: "Dad",
+    relationType: "FAMILY",
+    lastMeaningfulContact: iso(-10),
+    targetCadenceDays: 7,
+    entityId: "ent_family",
+  },
+  {
+    id: "checkin_3",
+    person: "Close Friend - Ali",
+    relationType: "FRIEND",
+    lastMeaningfulContact: iso(-15),
+    targetCadenceDays: 14,
+    entityId: "ent_family",
+  },
+  {
+    id: "checkin_4",
+    person: "Mentor - Sara",
+    relationType: "MENTOR",
+    lastMeaningfulContact: iso(-20),
+    targetCadenceDays: 21,
+    entityId: "ent_family",
+  },
+];
+
+export const STARTER_TIME_OFF_PLANS: TimeOffPlan[] = [
+  {
+    id: "timeoff_1",
+    title: "Lock 12-month emergency buffer",
+    status: "PRE_SABBATICAL",
+    targetDate: iso(45),
+    estimatedCostAud: 15_000,
+    priority: "HIGH",
+    entityId: "ent_timeoff",
+  },
+  {
+    id: "timeoff_2",
+    title: "Plan 6-week travel window",
+    status: "PRE_SABBATICAL",
+    targetDate: iso(75),
+    estimatedCostAud: 8_500,
+    priority: "MEDIUM",
+    entityId: "ent_timeoff",
+  },
+  {
+    id: "timeoff_3",
+    title: "Reduce recurring software expenses",
+    status: "READY",
+    targetDate: iso(20),
+    estimatedCostAud: 1_500,
+    priority: "HIGH",
+    entityId: "ent_ops",
+  },
+];
+
+export const STARTER_JOURNAL_ENTRIES: JournalEntry[] = [
+  {
+    id: "journal_1",
+    date: iso(-2),
+    title: "Locked in morning focus block",
+    entry:
+      "Deep work felt clean today. Next time I should start with the hardest architecture task before opening comms.",
+    mood: "GOOD",
+    tags: ["focus", "systems"],
+    entityId: "ent_los",
+    energyScore: 8,
+    focusScore: 8,
+  },
+  {
+    id: "journal_2",
+    date: iso(-1),
+    title: "Runway check reduced stress",
+    entry:
+      "Seeing runway on the dashboard helped me avoid impulsive spending. Need to keep weekly expense review on Friday.",
+    mood: "GREAT",
+    tags: ["finance", "weekly-review"],
+    entityId: "ent_personal",
+    energyScore: 7,
+    focusScore: 7,
+  },
+  {
+    id: "journal_3",
+    date: iso(0),
+    title: "Certification progress slower than planned",
+    entry:
+      "HMR prep is moving, but slower than target. I should schedule two fixed sessions this week and protect them.",
+    mood: "NEUTRAL",
+    tags: ["learning", "hmr"],
+    entityId: "ent_hmr",
+    energyScore: 6,
+    focusScore: 6,
+  },
+];
+
+export const STARTER_REVIEWS: ReviewNote[] = [
+  {
+    id: "review_1",
+    reviewDate: iso(-7),
+    wins: ["Set LOS scope and architecture", "Defined starter entities"],
+    stuck: ["Need final automation contracts"],
+    topThreeNextWeek: ["Complete Notion setup", "Ship dashboard shell", "Validate runway tile"],
+    runwayCommentary: "Runway is stable, focus on reducing discretionary spend.",
+  },
+];
+
+export function createStarterSnapshot(): LosDataSnapshot {
+  return {
+    areas: structuredClone(STARTER_AREAS),
+    entities: structuredClone(STARTER_ENTITIES),
+    projects: structuredClone(STARTER_PROJECTS),
+    tasks: structuredClone(STARTER_TASKS),
+    pathways: structuredClone(STARTER_PATHWAYS),
+    courses: structuredClone(STARTER_COURSES),
+    accounts: structuredClone(STARTER_ACCOUNTS),
+    transactions: structuredClone(STARTER_TRANSACTIONS),
+    upcomingExpenses: structuredClone(STARTER_UPCOMING_EXPENSES),
+    metrics: structuredClone(STARTER_METRICS),
+    healthLogs: structuredClone(STARTER_HEALTH_LOGS),
+    workouts: structuredClone(STARTER_WORKOUTS),
+    familyEvents: structuredClone(STARTER_FAMILY_EVENTS),
+    relationshipCheckins: structuredClone(STARTER_RELATIONSHIP_CHECKINS),
+    timeOffPlans: structuredClone(STARTER_TIME_OFF_PLANS),
+    journalEntries: structuredClone(STARTER_JOURNAL_ENTRIES),
+    reviews: structuredClone(STARTER_REVIEWS),
+  };
+}
