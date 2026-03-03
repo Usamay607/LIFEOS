@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     return rateLimitExceededResponse(guard.retryAfterSeconds);
   }
 
-  const expectedPin = process.env.LOS_DASHBOARD_PIN;
+  const expectedPin = process.env.LOS_DASHBOARD_PIN?.trim();
   if (!expectedPin) {
     return NextResponse.json({ ok: true });
   }
@@ -23,7 +23,8 @@ export async function POST(request: Request) {
   }
 
   const body = parsed.data;
-  if (body.pin !== expectedPin) {
+  const suppliedPin = typeof body.pin === "string" ? body.pin.trim() : "";
+  if (suppliedPin !== expectedPin) {
     return NextResponse.json({ error: "Invalid PIN" }, { status: 401 });
   }
 
