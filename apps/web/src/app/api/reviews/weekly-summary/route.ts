@@ -1,10 +1,25 @@
 import { NextResponse } from "next/server";
 import type { WeeklySummaryRequest } from "@los/types";
 import { losService } from "@/lib/los-service";
+import { parseJsonBodyWithLimit, rateLimit, rateLimitExceededResponse } from "@/lib/api-guard";
 
 export async function POST(request: Request) {
+  const guard = rateLimit(request, {
+    namespace: "weekly_summary",
+    limit: 30,
+    windowMs: 10 * 60 * 1000,
+  });
+  if (!guard.ok) {
+    return rateLimitExceededResponse(guard.retryAfterSeconds);
+  }
+
   try {
-    const body = (await request.json()) as WeeklySummaryRequest;
+    const parsed = await parseJsonBodyWithLimit<WeeklySummaryRequest>(request, 8_000);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    }
+
+    const body = parsed.data;
     const validRedaction = body.redactionLevel === "STRICT" || body.redactionLevel === "STANDARD";
     const validWindow =
       typeof body.taskWindowDays === "number" && Number.isFinite(body.taskWindowDays) && body.taskWindowDays > 0 && body.taskWindowDays <= 90;

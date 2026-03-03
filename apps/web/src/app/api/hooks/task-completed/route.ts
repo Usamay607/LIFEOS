@@ -1,10 +1,25 @@
 import { NextResponse } from "next/server";
 import type { TaskCompletedWebhookRequest } from "@los/types";
 import { losService } from "@/lib/los-service";
+import { parseJsonBodyWithLimit, rateLimit, rateLimitExceededResponse } from "@/lib/api-guard";
 
 export async function POST(request: Request) {
+  const guard = rateLimit(request, {
+    namespace: "task_completed_hook",
+    limit: 120,
+    windowMs: 10 * 60 * 1000,
+  });
+  if (!guard.ok) {
+    return rateLimitExceededResponse(guard.retryAfterSeconds);
+  }
+
   try {
-    const body = (await request.json()) as TaskCompletedWebhookRequest;
+    const parsed = await parseJsonBodyWithLimit<TaskCompletedWebhookRequest>(request, 8_000);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    }
+
+    const body = parsed.data;
     if (!body.taskId) {
       return NextResponse.json({ error: "taskId is required" }, { status: 400 });
     }
