@@ -23,6 +23,7 @@ const SECONDARY_NAV: NavItem[] = [
   { href: "/health", label: "Health" },
   { href: "/learning", label: "Learning" },
   { href: "/transition", label: "Transition" },
+  { href: "/settings/data", label: "Data Studio" },
   { href: "/settings/entities", label: "Entity Manager" },
 ];
 

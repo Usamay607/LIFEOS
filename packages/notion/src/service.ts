@@ -4,10 +4,17 @@ import type {
   AssistantQueryRequest,
   AssistantQueryResponse,
   CourseCert,
+  CreateAccountInput,
+  CreateCourseCertInput,
   CreateEntityInput,
   FocusState,
   CreateJournalEntryInput,
+  CreateMetricInput,
+  CreatePathwayInput,
+  CreateProjectInput,
   CreateTaskInput,
+  CreateTransactionInput,
+  CreateUpcomingExpenseInput,
   Entity,
   FamilyEvent,
   FamilyOverview,
@@ -17,6 +24,7 @@ import type {
   JournalEntry,
   LearningOverview,
   LosDataSnapshot,
+  MetricPoint,
   Pathway,
   Project,
   RedactionLevel,
@@ -29,8 +37,15 @@ import type {
   TransitionOverview,
   UpsertFocusStateInput,
   UpcomingExpense,
+  UpdateAccountInput,
+  UpdateCourseCertInput,
   UpdateEntityInput,
+  UpdateMetricInput,
+  UpdatePathwayInput,
+  UpdateProjectInput,
   UpdateTaskInput,
+  UpdateTransactionInput,
+  UpdateUpcomingExpenseInput,
   WeeklySummaryRequest,
   WeeklySummaryResponse,
   WorkoutSession,
@@ -504,6 +519,107 @@ export class LosService {
     return projects;
   }
 
+  async createProject(input: CreateProjectInput): Promise<Project> {
+    if (!input.name?.trim()) {
+      throw new Error("Project name is required.");
+    }
+    if (!input.entityId) {
+      throw new Error("Project entityId is required.");
+    }
+
+    const project: Project = {
+      id: `proj_${crypto.randomUUID()}`,
+      name: input.name.trim(),
+      entityId: input.entityId,
+      status: input.status ?? "ACTIVE",
+      nextMilestone: input.nextMilestone?.trim() || undefined,
+      deadline: toIso(input.deadline),
+      skillsUsedCourseIds: input.skillsUsedCourseIds ?? [],
+      postMortem: input.postMortem?.trim() || undefined,
+    };
+    assertProjectIntegrity(project);
+
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      snapshot.projects.unshift(project);
+      return project;
+    }
+
+    const page = (await (this.notion as any).pages.create({
+      parent: { database_id: this.requireDatabaseId("projects") },
+      properties: {
+        name: titleProperty(project.name),
+        entity: { relation: [{ id: project.entityId }] },
+        status: { select: { name: project.status } },
+        next_milestone: textProperty(project.nextMilestone ?? ""),
+        deadline: project.deadline ? { date: { start: project.deadline } } : { date: null },
+        skills_used: { relation: project.skillsUsedCourseIds.map((id) => ({ id })) },
+        post_mortem: textProperty(project.postMortem ?? ""),
+      },
+    })) as any;
+
+    return mapNotionPageToProject(page);
+  }
+
+  async updateProject(id: string, input: UpdateProjectInput): Promise<Project> {
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      const index = snapshot.projects.findIndex((project) => project.id === id);
+      if (index < 0) {
+        throw new Error(`Project not found: ${id}`);
+      }
+      const existing = snapshot.projects[index];
+      if (!existing) {
+        throw new Error(`Project not found: ${id}`);
+      }
+
+      const updated: Project = {
+        ...existing,
+        ...input,
+        name: input.name?.trim() ? input.name.trim() : existing.name,
+        nextMilestone: input.nextMilestone !== undefined ? input.nextMilestone.trim() || undefined : existing.nextMilestone,
+        deadline: input.deadline !== undefined ? toIso(input.deadline) : existing.deadline,
+        postMortem: input.postMortem !== undefined ? input.postMortem.trim() || undefined : existing.postMortem,
+        skillsUsedCourseIds: input.skillsUsedCourseIds ?? existing.skillsUsedCourseIds,
+      };
+      assertProjectIntegrity(updated);
+      snapshot.projects[index] = updated;
+      return updated;
+    }
+
+    const properties: Record<string, unknown> = {};
+    if (input.name !== undefined) {
+      properties.name = titleProperty(input.name.trim() || "Untitled Project");
+    }
+    if (input.entityId !== undefined) {
+      properties.entity = { relation: input.entityId ? [{ id: input.entityId }] : [] };
+    }
+    if (input.status !== undefined) {
+      properties.status = { select: { name: input.status } };
+    }
+    if (input.nextMilestone !== undefined) {
+      properties.next_milestone = textProperty(input.nextMilestone.trim());
+    }
+    if (input.deadline !== undefined) {
+      properties.deadline = input.deadline ? { date: { start: input.deadline } } : { date: null };
+    }
+    if (input.skillsUsedCourseIds !== undefined) {
+      properties.skills_used = { relation: input.skillsUsedCourseIds.map((courseId) => ({ id: courseId })) };
+    }
+    if (input.postMortem !== undefined) {
+      properties.post_mortem = textProperty(input.postMortem.trim());
+    }
+
+    const page = (await (this.notion as any).pages.update({
+      page_id: id,
+      properties,
+    })) as any;
+
+    const updated = mapNotionPageToProject(page);
+    assertProjectIntegrity(updated);
+    return updated;
+  }
+
   async listTasks(): Promise<Task[]> {
     if (!this.notion) {
       return memoryStore.get().tasks;
@@ -522,7 +638,7 @@ export class LosService {
       const snapshot = memoryStore.get();
       const task: Task = {
         id: `task_${crypto.randomUUID()}`,
-        title: input.title,
+        title: input.title.trim(),
         projectId: input.projectId,
         status: "NEXT",
         dueDate: toIso(input.dueDate),
@@ -540,7 +656,7 @@ export class LosService {
     const page = (await (this.notion as any).pages.create({
       parent: { database_id: tasksDbId },
       properties: {
-        title: titleProperty(input.title),
+        title: titleProperty(input.title.trim()),
         project: { relation: [{ id: input.projectId }] },
         status: { select: { name: "NEXT" } },
         due_date: input.dueDate ? { date: { start: input.dueDate } } : undefined,
@@ -570,15 +686,19 @@ export class LosService {
       const updated: Task = {
         ...existing,
         ...input,
-        dueDate: input.dueDate ? toIso(input.dueDate) : existing.dueDate,
+        title: input.title !== undefined ? input.title.trim() : existing.title,
+        projectId: input.projectId ?? existing.projectId,
+        dueDate: input.dueDate !== undefined ? (input.dueDate ? toIso(input.dueDate) : undefined) : existing.dueDate,
       };
       snapshot.tasks[index] = updated;
       return updated;
     }
 
     const properties: Record<string, unknown> = {};
+    if (input.title !== undefined) properties.title = titleProperty(input.title.trim() || "Untitled Task");
+    if (input.projectId !== undefined) properties.project = { relation: input.projectId ? [{ id: input.projectId }] : [] };
     if (input.status) properties.status = { select: { name: input.status } };
-    if (input.dueDate) properties.due_date = { date: { start: input.dueDate } };
+    if (input.dueDate !== undefined) properties.due_date = input.dueDate ? { date: { start: input.dueDate } } : { date: null };
     if (input.energy) properties.energy = { select: { name: input.energy } };
     if (input.context) properties.context = { select: { name: input.context } };
     if (typeof input.recurring === "boolean") properties.recurring = { checkbox: input.recurring };
@@ -807,25 +927,30 @@ export class LosService {
     return response.map(mapNotionPageToTransaction).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
   }
 
-  async listUpcomingExpenses(): Promise<UpcomingExpense[]> {
+  async listUpcomingExpenses(includePaid = false): Promise<UpcomingExpense[]> {
     if (!this.notion) {
-      return memoryStore
+      const rows = memoryStore
         .get()
-        .upcomingExpenses.filter((expense) => !expense.paid)
-        .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
-        .slice(0, 5);
+        .upcomingExpenses.filter((expense) => (includePaid ? true : !expense.paid))
+        .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+      return includePaid ? rows : rows.slice(0, 5);
     }
 
     const dbId = this.requireDatabaseId("upcomingExpenses");
-    const response = await this.queryAllPages(dbId, {
-      property: "paid",
-      checkbox: { equals: false },
-    });
+    const response = await this.queryAllPages(
+      dbId,
+      includePaid
+        ? undefined
+        : {
+            property: "paid",
+            checkbox: { equals: false },
+          },
+    );
 
-    return response
+    const rows = response
       .map(mapNotionPageToUpcomingExpense)
-      .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
-      .slice(0, 5);
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    return includePaid ? rows : rows.slice(0, 5);
   }
 
   async getRunway(): Promise<RunwayResult> {
@@ -1101,6 +1226,70 @@ export class LosService {
     return response.map(mapNotionPageToPathway);
   }
 
+  async createPathway(input: CreatePathwayInput): Promise<Pathway> {
+    if (!input.title?.trim()) {
+      throw new Error("Pathway title is required.");
+    }
+
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      const pathway: Pathway = {
+        id: `pathway_${crypto.randomUUID()}`,
+        title: input.title.trim(),
+        status: input.status ?? "ACTIVE",
+        progressPercent: Math.max(0, Math.min(100, input.progressPercent ?? 0)),
+      };
+      snapshot.pathways.unshift(pathway);
+      return pathway;
+    }
+
+    const page = (await (this.notion as any).pages.create({
+      parent: { database_id: this.requireDatabaseId("pathways") },
+      properties: {
+        title: titleProperty(input.title.trim()),
+        status: { select: { name: input.status ?? "ACTIVE" } },
+        progress_percent: { number: Math.max(0, Math.min(100, input.progressPercent ?? 0)) },
+      },
+    })) as any;
+
+    return mapNotionPageToPathway(page);
+  }
+
+  async updatePathway(id: string, input: UpdatePathwayInput): Promise<Pathway> {
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      const index = snapshot.pathways.findIndex((pathway) => pathway.id === id);
+      if (index < 0) {
+        throw new Error(`Pathway not found: ${id}`);
+      }
+      const existing = snapshot.pathways[index];
+      if (!existing) {
+        throw new Error(`Pathway not found: ${id}`);
+      }
+      const updated: Pathway = {
+        ...existing,
+        ...input,
+        title: input.title !== undefined ? input.title.trim() || existing.title : existing.title,
+        progressPercent:
+          typeof input.progressPercent === "number"
+            ? Math.max(0, Math.min(100, input.progressPercent))
+            : existing.progressPercent,
+      };
+      snapshot.pathways[index] = updated;
+      return updated;
+    }
+
+    const properties: Record<string, unknown> = {};
+    if (input.title !== undefined) properties.title = titleProperty(input.title.trim() || "Untitled Pathway");
+    if (input.status !== undefined) properties.status = { select: { name: input.status } };
+    if (typeof input.progressPercent === "number") {
+      properties.progress_percent = { number: Math.max(0, Math.min(100, input.progressPercent)) };
+    }
+
+    const page = (await (this.notion as any).pages.update({ page_id: id, properties })) as any;
+    return mapNotionPageToPathway(page);
+  }
+
   async listCourses(): Promise<CourseCert[]> {
     if (!this.notion) {
       return memoryStore.get().courses;
@@ -1111,7 +1300,96 @@ export class LosService {
     return response.map(mapNotionPageToCourse);
   }
 
-  private async listTransactions(): Promise<Transaction[]> {
+  async createCourse(input: CreateCourseCertInput): Promise<CourseCert> {
+    if (!input.title?.trim()) {
+      throw new Error("Course/Cert title is required.");
+    }
+    if (!input.pathwayId) {
+      throw new Error("Course/Cert pathwayId is required.");
+    }
+
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      const course: CourseCert = {
+        id: `course_${crypto.randomUUID()}`,
+        title: input.title.trim(),
+        pathwayId: input.pathwayId,
+        status: input.status ?? "NOT_STARTED",
+        targetDate: toIso(input.targetDate),
+        estimatedHours: input.estimatedHours,
+        completedHours: input.completedHours,
+        proofUrls: input.proofUrls ?? [],
+        appliedProjectIds: input.appliedProjectIds ?? [],
+        appliedProgressPercent: Math.max(0, Math.min(100, input.appliedProgressPercent ?? 0)),
+      };
+      snapshot.courses.unshift(course);
+      return course;
+    }
+
+    const page = (await (this.notion as any).pages.create({
+      parent: { database_id: this.requireDatabaseId("coursesCerts") },
+      properties: {
+        course_cert: titleProperty(input.title.trim()),
+        pathway: { relation: [{ id: input.pathwayId }] },
+        status: { select: { name: input.status ?? "NOT_STARTED" } },
+        target_date: input.targetDate ? { date: { start: input.targetDate } } : { date: null },
+        estimated_hours: { number: input.estimatedHours ?? null },
+        completed_hours: { number: input.completedHours ?? null },
+        proof: { files: [] },
+        applied_projects: { relation: (input.appliedProjectIds ?? []).map((id) => ({ id })) },
+        applied_progress_percent: { number: Math.max(0, Math.min(100, input.appliedProgressPercent ?? 0)) },
+      },
+    })) as any;
+
+    return mapNotionPageToCourse(page);
+  }
+
+  async updateCourse(id: string, input: UpdateCourseCertInput): Promise<CourseCert> {
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      const index = snapshot.courses.findIndex((course) => course.id === id);
+      if (index < 0) {
+        throw new Error(`Course/Cert not found: ${id}`);
+      }
+      const existing = snapshot.courses[index];
+      if (!existing) {
+        throw new Error(`Course/Cert not found: ${id}`);
+      }
+      const updated: CourseCert = {
+        ...existing,
+        ...input,
+        title: input.title !== undefined ? input.title.trim() || existing.title : existing.title,
+        targetDate: input.targetDate !== undefined ? toIso(input.targetDate) : existing.targetDate,
+        proofUrls: input.proofUrls ?? existing.proofUrls,
+        appliedProjectIds: input.appliedProjectIds ?? existing.appliedProjectIds,
+        appliedProgressPercent:
+          typeof input.appliedProgressPercent === "number"
+            ? Math.max(0, Math.min(100, input.appliedProgressPercent))
+            : existing.appliedProgressPercent,
+      };
+      snapshot.courses[index] = updated;
+      return updated;
+    }
+
+    const properties: Record<string, unknown> = {};
+    if (input.title !== undefined) properties.course_cert = titleProperty(input.title.trim() || "Untitled Course");
+    if (input.pathwayId !== undefined) properties.pathway = { relation: input.pathwayId ? [{ id: input.pathwayId }] : [] };
+    if (input.status !== undefined) properties.status = { select: { name: input.status } };
+    if (input.targetDate !== undefined) properties.target_date = input.targetDate ? { date: { start: input.targetDate } } : { date: null };
+    if (input.estimatedHours !== undefined) properties.estimated_hours = { number: input.estimatedHours ?? null };
+    if (input.completedHours !== undefined) properties.completed_hours = { number: input.completedHours ?? null };
+    if (input.appliedProjectIds !== undefined) {
+      properties.applied_projects = { relation: input.appliedProjectIds.map((projectId) => ({ id: projectId })) };
+    }
+    if (input.appliedProgressPercent !== undefined) {
+      properties.applied_progress_percent = { number: Math.max(0, Math.min(100, input.appliedProgressPercent)) };
+    }
+
+    const page = (await (this.notion as any).pages.update({ page_id: id, properties })) as any;
+    return mapNotionPageToCourse(page);
+  }
+
+  async listTransactions(): Promise<Transaction[]> {
     if (!this.notion) {
       return memoryStore.get().transactions;
     }
@@ -1121,7 +1399,80 @@ export class LosService {
     return response.map(mapNotionPageToTransaction);
   }
 
-  private async listMetrics(): Promise<LosDataSnapshot["metrics"]> {
+  async createTransaction(input: CreateTransactionInput): Promise<Transaction> {
+    if (!input.date || !input.entityId || !input.type || !input.category?.trim()) {
+      throw new Error("date, entityId, type, and category are required.");
+    }
+    if (!Number.isFinite(input.amount)) {
+      throw new Error("amount must be a valid number.");
+    }
+
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      const transaction: Transaction = {
+        id: `txn_${crypto.randomUUID()}`,
+        date: toIso(input.date) ?? new Date().toISOString(),
+        amount: Number(input.amount),
+        type: input.type,
+        entityId: input.entityId,
+        category: input.category.trim(),
+        notes: input.notes?.trim() || undefined,
+      };
+      snapshot.transactions.unshift(transaction);
+      return transaction;
+    }
+
+    const page = (await (this.notion as any).pages.create({
+      parent: { database_id: this.requireDatabaseId("transactions") },
+      properties: {
+        date: { date: { start: input.date } },
+        amount: { number: Number(input.amount) },
+        type: { select: { name: input.type } },
+        entity: { relation: [{ id: input.entityId }] },
+        category: { select: { name: input.category.trim() } },
+        notes: textProperty(input.notes?.trim() ?? ""),
+      },
+    })) as any;
+
+    return mapNotionPageToTransaction(page);
+  }
+
+  async updateTransaction(id: string, input: UpdateTransactionInput): Promise<Transaction> {
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      const index = snapshot.transactions.findIndex((transaction) => transaction.id === id);
+      if (index < 0) {
+        throw new Error(`Transaction not found: ${id}`);
+      }
+      const existing = snapshot.transactions[index];
+      if (!existing) {
+        throw new Error(`Transaction not found: ${id}`);
+      }
+      const updated: Transaction = {
+        ...existing,
+        ...input,
+        date: input.date !== undefined ? toIso(input.date) ?? existing.date : existing.date,
+        amount: input.amount !== undefined ? Number(input.amount) : existing.amount,
+        category: input.category !== undefined ? input.category.trim() || existing.category : existing.category,
+        notes: input.notes !== undefined ? input.notes.trim() || undefined : existing.notes,
+      };
+      snapshot.transactions[index] = updated;
+      return updated;
+    }
+
+    const properties: Record<string, unknown> = {};
+    if (input.date !== undefined) properties.date = input.date ? { date: { start: input.date } } : { date: null };
+    if (input.amount !== undefined) properties.amount = { number: Number(input.amount) };
+    if (input.type !== undefined) properties.type = { select: { name: input.type } };
+    if (input.entityId !== undefined) properties.entity = { relation: input.entityId ? [{ id: input.entityId }] : [] };
+    if (input.category !== undefined) properties.category = { select: { name: input.category.trim() || "Other" } };
+    if (input.notes !== undefined) properties.notes = textProperty(input.notes.trim());
+
+    const page = (await (this.notion as any).pages.update({ page_id: id, properties })) as any;
+    return mapNotionPageToTransaction(page);
+  }
+
+  async listMetrics(): Promise<LosDataSnapshot["metrics"]> {
     if (!this.notion) {
       return memoryStore.get().metrics;
     }
@@ -1129,6 +1480,155 @@ export class LosService {
     const dbId = this.requireDatabaseId("metrics");
     const response = await this.queryAllPages(dbId);
     return response.map(mapNotionPageToMetric);
+  }
+
+  async createMetric(input: CreateMetricInput): Promise<MetricPoint> {
+    if (!input.metricName?.trim() || !input.category || !input.unit || !input.date) {
+      throw new Error("metricName, category, unit, and date are required.");
+    }
+    if (!Number.isFinite(input.value)) {
+      throw new Error("value must be a valid number.");
+    }
+
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      const metric: MetricPoint = {
+        id: `metric_${crypto.randomUUID()}`,
+        metricName: input.metricName.trim(),
+        category: input.category,
+        value: Number(input.value),
+        unit: input.unit,
+        date: toIso(input.date) ?? new Date().toISOString(),
+        entityId: input.entityId,
+        projectId: input.projectId,
+      };
+      snapshot.metrics.unshift(metric);
+      return metric;
+    }
+
+    const properties: Record<string, unknown> = {
+      metric_name: titleProperty(input.metricName.trim()),
+      category: { select: { name: input.category } },
+      value: { number: Number(input.value) },
+      unit: { select: { name: input.unit } },
+      date: { date: { start: input.date } },
+    };
+    if (input.entityId) properties.entity = { relation: [{ id: input.entityId }] };
+    if (input.projectId) properties.project = { relation: [{ id: input.projectId }] };
+
+    const page = (await (this.notion as any).pages.create({
+      parent: { database_id: this.requireDatabaseId("metrics") },
+      properties,
+    })) as any;
+
+    return mapNotionPageToMetric(page);
+  }
+
+  async updateMetric(id: string, input: UpdateMetricInput): Promise<MetricPoint> {
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      const index = snapshot.metrics.findIndex((metric) => metric.id === id);
+      if (index < 0) {
+        throw new Error(`Metric not found: ${id}`);
+      }
+      const existing = snapshot.metrics[index];
+      if (!existing) {
+        throw new Error(`Metric not found: ${id}`);
+      }
+      const updated: MetricPoint = {
+        ...existing,
+        ...input,
+        metricName: input.metricName !== undefined ? input.metricName.trim() || existing.metricName : existing.metricName,
+        value: input.value !== undefined ? Number(input.value) : existing.value,
+        date: input.date !== undefined ? toIso(input.date) ?? existing.date : existing.date,
+      };
+      snapshot.metrics[index] = updated;
+      return updated;
+    }
+
+    const properties: Record<string, unknown> = {};
+    if (input.metricName !== undefined) properties.metric_name = titleProperty(input.metricName.trim() || "Metric");
+    if (input.category !== undefined) properties.category = { select: { name: input.category } };
+    if (input.value !== undefined) properties.value = { number: Number(input.value) };
+    if (input.unit !== undefined) properties.unit = { select: { name: input.unit } };
+    if (input.date !== undefined) properties.date = input.date ? { date: { start: input.date } } : { date: null };
+    if (input.entityId !== undefined) properties.entity = { relation: input.entityId ? [{ id: input.entityId }] : [] };
+    if (input.projectId !== undefined) properties.project = { relation: input.projectId ? [{ id: input.projectId }] : [] };
+
+    const page = (await (this.notion as any).pages.update({ page_id: id, properties })) as any;
+    return mapNotionPageToMetric(page);
+  }
+
+  async createUpcomingExpense(input: CreateUpcomingExpenseInput): Promise<UpcomingExpense> {
+    if (!input.bill?.trim() || !input.entityId || !input.frequency || !input.dueDate) {
+      throw new Error("bill, entityId, frequency, and dueDate are required.");
+    }
+    if (!Number.isFinite(input.amount)) {
+      throw new Error("amount must be a valid number.");
+    }
+
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      const expense: UpcomingExpense = {
+        id: `upcoming_${crypto.randomUUID()}`,
+        bill: input.bill.trim(),
+        amount: Number(input.amount),
+        dueDate: toIso(input.dueDate) ?? new Date().toISOString(),
+        frequency: input.frequency,
+        entityId: input.entityId,
+        paid: input.paid ?? false,
+      };
+      snapshot.upcomingExpenses.unshift(expense);
+      return expense;
+    }
+
+    const page = (await (this.notion as any).pages.create({
+      parent: { database_id: this.requireDatabaseId("upcomingExpenses") },
+      properties: {
+        bill: titleProperty(input.bill.trim()),
+        amount: { number: Number(input.amount) },
+        due_date: { date: { start: input.dueDate } },
+        frequency: { select: { name: input.frequency } },
+        entity: { relation: [{ id: input.entityId }] },
+        paid: { checkbox: input.paid ?? false },
+      },
+    })) as any;
+
+    return mapNotionPageToUpcomingExpense(page);
+  }
+
+  async updateUpcomingExpense(id: string, input: UpdateUpcomingExpenseInput): Promise<UpcomingExpense> {
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      const index = snapshot.upcomingExpenses.findIndex((expense) => expense.id === id);
+      if (index < 0) {
+        throw new Error(`Upcoming expense not found: ${id}`);
+      }
+      const existing = snapshot.upcomingExpenses[index];
+      if (!existing) {
+        throw new Error(`Upcoming expense not found: ${id}`);
+      }
+      const updated: UpcomingExpense = {
+        ...existing,
+        ...input,
+        bill: input.bill !== undefined ? input.bill.trim() || existing.bill : existing.bill,
+        amount: input.amount !== undefined ? Number(input.amount) : existing.amount,
+        dueDate: input.dueDate !== undefined ? toIso(input.dueDate) ?? existing.dueDate : existing.dueDate,
+      };
+      snapshot.upcomingExpenses[index] = updated;
+      return updated;
+    }
+
+    const properties: Record<string, unknown> = {};
+    if (input.bill !== undefined) properties.bill = titleProperty(input.bill.trim() || "Expense");
+    if (input.amount !== undefined) properties.amount = { number: Number(input.amount) };
+    if (input.dueDate !== undefined) properties.due_date = input.dueDate ? { date: { start: input.dueDate } } : { date: null };
+    if (input.frequency !== undefined) properties.frequency = { select: { name: input.frequency } };
+    if (input.entityId !== undefined) properties.entity = { relation: input.entityId ? [{ id: input.entityId }] : [] };
+    if (input.paid !== undefined) properties.paid = { checkbox: input.paid };
+
+    const page = (await (this.notion as any).pages.update({ page_id: id, properties })) as any;
+    return mapNotionPageToUpcomingExpense(page);
   }
 
   private async getSnapshot(): Promise<LosDataSnapshot> {
@@ -1201,6 +1701,90 @@ export class LosService {
     const dbId = this.requireDatabaseId("accounts");
     const response = await this.queryAllPages(dbId);
     return response.map(mapNotionPageToAccount);
+  }
+
+  async createAccount(input: CreateAccountInput): Promise<AccountRef> {
+    if (!input.service?.trim() || !input.entityId) {
+      throw new Error("service and entityId are required.");
+    }
+
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      const account: AccountRef = {
+        id: `acc_${crypto.randomUUID()}`,
+        service: input.service.trim(),
+        entityId: input.entityId,
+        loginIdentifier: input.loginIdentifier?.trim() ?? "",
+        role: input.role ?? "USER",
+        twoFactorEnabled: input.twoFactorEnabled ?? false,
+        vaultItemUrl: input.vaultItemUrl?.trim() ?? "",
+        vaultItemId: input.vaultItemId?.trim() || undefined,
+        lastRotated: input.lastRotated ? toIso(input.lastRotated) : undefined,
+        notes: input.notes?.trim() || undefined,
+      };
+      snapshot.accounts.unshift(account);
+      return account;
+    }
+
+    const page = (await (this.notion as any).pages.create({
+      parent: { database_id: this.requireDatabaseId("accounts") },
+      properties: {
+        service: titleProperty(input.service.trim()),
+        entity: { relation: [{ id: input.entityId }] },
+        login_identifier: textProperty(input.loginIdentifier?.trim() ?? ""),
+        role: { select: { name: input.role ?? "USER" } },
+        "2fa_enabled": { checkbox: input.twoFactorEnabled ?? false },
+        vault_item_url: textProperty(input.vaultItemUrl?.trim() ?? ""),
+        vault_item_id: textProperty(input.vaultItemId?.trim() ?? ""),
+        last_rotated: input.lastRotated ? { date: { start: input.lastRotated } } : { date: null },
+        notes: textProperty(input.notes?.trim() ?? ""),
+      },
+    })) as any;
+
+    return mapNotionPageToAccount(page);
+  }
+
+  async updateAccount(id: string, input: UpdateAccountInput): Promise<AccountRef> {
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      const index = snapshot.accounts.findIndex((account) => account.id === id);
+      if (index < 0) {
+        throw new Error(`Account not found: ${id}`);
+      }
+      const existing = snapshot.accounts[index];
+      if (!existing) {
+        throw new Error(`Account not found: ${id}`);
+      }
+      const updated: AccountRef = {
+        ...existing,
+        ...input,
+        service: input.service !== undefined ? input.service.trim() || existing.service : existing.service,
+        loginIdentifier:
+          input.loginIdentifier !== undefined ? input.loginIdentifier.trim() : existing.loginIdentifier,
+        vaultItemUrl: input.vaultItemUrl !== undefined ? input.vaultItemUrl.trim() : existing.vaultItemUrl,
+        vaultItemId: input.vaultItemId !== undefined ? input.vaultItemId.trim() || undefined : existing.vaultItemId,
+        lastRotated: input.lastRotated !== undefined ? (input.lastRotated ? toIso(input.lastRotated) : undefined) : existing.lastRotated,
+        notes: input.notes !== undefined ? input.notes.trim() || undefined : existing.notes,
+      };
+      snapshot.accounts[index] = updated;
+      return updated;
+    }
+
+    const properties: Record<string, unknown> = {};
+    if (input.service !== undefined) properties.service = titleProperty(input.service.trim() || "Service");
+    if (input.entityId !== undefined) properties.entity = { relation: input.entityId ? [{ id: input.entityId }] : [] };
+    if (input.loginIdentifier !== undefined) properties.login_identifier = textProperty(input.loginIdentifier.trim());
+    if (input.role !== undefined) properties.role = { select: { name: input.role } };
+    if (input.twoFactorEnabled !== undefined) properties["2fa_enabled"] = { checkbox: input.twoFactorEnabled };
+    if (input.vaultItemUrl !== undefined) properties.vault_item_url = textProperty(input.vaultItemUrl.trim());
+    if (input.vaultItemId !== undefined) properties.vault_item_id = textProperty(input.vaultItemId.trim());
+    if (input.lastRotated !== undefined) {
+      properties.last_rotated = input.lastRotated ? { date: { start: input.lastRotated } } : { date: null };
+    }
+    if (input.notes !== undefined) properties.notes = textProperty(input.notes.trim());
+
+    const page = (await (this.notion as any).pages.update({ page_id: id, properties })) as any;
+    return mapNotionPageToAccount(page);
   }
 
   private requireDatabaseId(key: keyof LosEnv["databaseIds"]): string {

@@ -9,6 +9,8 @@ import { GET as getJournal, POST as createJournal } from "./journal/route";
 import { POST as assistantQuery } from "./assistant/query/route";
 import { GET as getSystemReadiness } from "./system/readiness/route";
 import { GET as getProjects } from "./projects/route";
+import { POST as createProject } from "./projects/route";
+import { PATCH as patchProject } from "./projects/[id]/route";
 import { GET as getEntities, POST as createEntity } from "./entities/route";
 import { PATCH as patchEntity } from "./entities/[id]/route";
 import { POST as createTask } from "./tasks/route";
@@ -16,6 +18,8 @@ import { PATCH as patchTask } from "./tasks/[id]/route";
 import { GET as getFocusState, PUT as putFocusState } from "./focus/state/route";
 import { POST as weeklySummary } from "./reviews/weekly-summary/route";
 import { POST as taskCompletedHook } from "./hooks/task-completed/route";
+import { GET as getMetrics, POST as createMetric } from "./metrics/route";
+import { PATCH as patchMetric } from "./metrics/[id]/route";
 
 function jsonRequest(url: string, body: unknown, method = "POST") {
   return new Request(url, {
@@ -157,6 +161,27 @@ describe("web API routes", () => {
     expect(projects.every((project) => project.status === "ACTIVE")).toBe(true);
   });
 
+  it("creates and updates a project", async () => {
+    const createdResponse = await createProject(
+      jsonRequest("http://localhost/api/projects", {
+        name: "Data studio project",
+        entityId: "ent_los",
+        status: "ACTIVE",
+      }),
+    );
+    expect(createdResponse.status).toBe(201);
+    const created = (await createdResponse.json()) as { id: string; name: string };
+    expect(created.name).toBe("Data studio project");
+
+    const patchedResponse = await patchProject(
+      jsonRequest("http://localhost/api/projects/id", { status: "ON_HOLD" }, "PATCH"),
+      { params: Promise.resolve({ id: created.id }) },
+    );
+    expect(patchedResponse.status).toBe(200);
+    const patched = (await patchedResponse.json()) as { status: string };
+    expect(patched.status).toBe("ON_HOLD");
+  });
+
   it("upserts and retrieves focus state", async () => {
     const putResponse = await putFocusState(
       jsonRequest(
@@ -255,6 +280,34 @@ describe("web API routes", () => {
     const allEntitiesResponse = await getEntities(new Request("http://localhost/api/entities?includeArchived=true"));
     const allEntities = (await allEntitiesResponse.json()) as Array<{ id: string }>;
     expect(allEntities.some((entity) => entity.id === created.id)).toBe(true);
+  });
+
+  it("creates and updates a metric", async () => {
+    const createResponse = await createMetric(
+      jsonRequest("http://localhost/api/metrics", {
+        metricName: "Test Metric",
+        category: "FINANCE",
+        value: 1234,
+        unit: "AUD",
+        date: new Date().toISOString(),
+      }),
+    );
+    expect(createResponse.status).toBe(201);
+    const created = (await createResponse.json()) as { id: string; value: number };
+    expect(created.value).toBe(1234);
+
+    const patchResponse = await patchMetric(
+      jsonRequest("http://localhost/api/metrics/id", { value: 1500 }, "PATCH"),
+      { params: Promise.resolve({ id: created.id }) },
+    );
+    expect(patchResponse.status).toBe(200);
+    const patched = (await patchResponse.json()) as { value: number };
+    expect(patched.value).toBe(1500);
+
+    const listResponse = await getMetrics();
+    expect(listResponse.status).toBe(200);
+    const list = (await listResponse.json()) as Array<{ id: string }>;
+    expect(list.some((item) => item.id === created.id)).toBe(true);
   });
 
   it("generates strict weekly summary", async () => {

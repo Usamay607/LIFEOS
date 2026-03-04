@@ -353,12 +353,34 @@ export interface CreateTaskInput {
 }
 
 export interface UpdateTaskInput {
+  title?: string;
+  projectId?: Id;
   status?: TaskStatus;
   dueDate?: string;
   energy?: Task["energy"];
   context?: Task["context"];
   recurring?: boolean;
   notes?: string;
+}
+
+export interface CreateProjectInput {
+  name: string;
+  entityId: Id;
+  status?: ProjectStatus;
+  nextMilestone?: string;
+  deadline?: string;
+  skillsUsedCourseIds?: Id[];
+  postMortem?: string;
+}
+
+export interface UpdateProjectInput {
+  name?: string;
+  entityId?: Id;
+  status?: ProjectStatus;
+  nextMilestone?: string;
+  deadline?: string;
+  skillsUsedCourseIds?: Id[];
+  postMortem?: string;
 }
 
 export interface UpdateEntityInput {
@@ -386,6 +408,122 @@ export interface CreateJournalEntryInput {
   entityId?: Id;
   energyScore?: number;
   focusScore?: number;
+}
+
+export interface CreatePathwayInput {
+  title: string;
+  status?: Pathway["status"];
+  progressPercent?: number;
+}
+
+export interface UpdatePathwayInput {
+  title?: string;
+  status?: Pathway["status"];
+  progressPercent?: number;
+}
+
+export interface CreateCourseCertInput {
+  title: string;
+  pathwayId: Id;
+  status?: CourseStatus;
+  targetDate?: string;
+  estimatedHours?: number;
+  completedHours?: number;
+  proofUrls?: string[];
+  appliedProjectIds?: Id[];
+  appliedProgressPercent?: number;
+}
+
+export interface UpdateCourseCertInput {
+  title?: string;
+  pathwayId?: Id;
+  status?: CourseStatus;
+  targetDate?: string;
+  estimatedHours?: number;
+  completedHours?: number;
+  proofUrls?: string[];
+  appliedProjectIds?: Id[];
+  appliedProgressPercent?: number;
+}
+
+export interface CreateAccountInput {
+  service: string;
+  entityId: Id;
+  loginIdentifier?: string;
+  role?: AccountRef["role"];
+  twoFactorEnabled?: boolean;
+  vaultItemUrl?: string;
+  vaultItemId?: string;
+  lastRotated?: string;
+  notes?: string;
+}
+
+export interface UpdateAccountInput {
+  service?: string;
+  entityId?: Id;
+  loginIdentifier?: string;
+  role?: AccountRef["role"];
+  twoFactorEnabled?: boolean;
+  vaultItemUrl?: string;
+  vaultItemId?: string;
+  lastRotated?: string;
+  notes?: string;
+}
+
+export interface CreateTransactionInput {
+  date: string;
+  amount: number;
+  type: Transaction["type"];
+  entityId: Id;
+  category: string;
+  notes?: string;
+}
+
+export interface UpdateTransactionInput {
+  date?: string;
+  amount?: number;
+  type?: Transaction["type"];
+  entityId?: Id;
+  category?: string;
+  notes?: string;
+}
+
+export interface CreateUpcomingExpenseInput {
+  bill: string;
+  amount: number;
+  dueDate: string;
+  frequency: UpcomingExpense["frequency"];
+  entityId: Id;
+  paid?: boolean;
+}
+
+export interface UpdateUpcomingExpenseInput {
+  bill?: string;
+  amount?: number;
+  dueDate?: string;
+  frequency?: UpcomingExpense["frequency"];
+  entityId?: Id;
+  paid?: boolean;
+}
+
+export interface CreateMetricInput {
+  metricName: string;
+  category: MetricPoint["category"];
+  value: number;
+  unit: MetricPoint["unit"];
+  date: string;
+  entityId?: Id;
+  projectId?: Id;
+}
+
+export interface UpdateMetricInput {
+  metricName?: string;
+  category?: MetricPoint["category"];
+  value?: number;
+  unit?: MetricPoint["unit"];
+  date?: string;
+  entityId?: Id;
+  projectId?: Id;
 }
 
 export interface LosDataSnapshot {
