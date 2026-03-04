@@ -20,6 +20,16 @@ import { POST as weeklySummary } from "./reviews/weekly-summary/route";
 import { POST as taskCompletedHook } from "./hooks/task-completed/route";
 import { GET as getMetrics, POST as createMetric } from "./metrics/route";
 import { PATCH as patchMetric } from "./metrics/[id]/route";
+import { GET as getHealthLogs, POST as createHealthLog } from "./health/logs/route";
+import { PATCH as patchHealthLog } from "./health/logs/[id]/route";
+import { GET as getWorkouts, POST as createWorkout } from "./health/workouts/route";
+import { PATCH as patchWorkout } from "./health/workouts/[id]/route";
+import { GET as getFamilyEvents, POST as createFamilyEvent } from "./family/events/route";
+import { PATCH as patchFamilyEvent } from "./family/events/[id]/route";
+import { GET as getRelationshipCheckins, POST as createRelationshipCheckin } from "./family/checkins/route";
+import { PATCH as patchRelationshipCheckin } from "./family/checkins/[id]/route";
+import { GET as getTimeOffPlans, POST as createTimeOffPlan } from "./transition/plans/route";
+import { PATCH as patchTimeOffPlan } from "./transition/plans/[id]/route";
 
 function jsonRequest(url: string, body: unknown, method = "POST") {
   return new Request(url, {
@@ -308,6 +318,127 @@ describe("web API routes", () => {
     expect(listResponse.status).toBe(200);
     const list = (await listResponse.json()) as Array<{ id: string }>;
     expect(list.some((item) => item.id === created.id)).toBe(true);
+  });
+
+  it("creates and updates a health daily log", async () => {
+    const createResponse = await createHealthLog(
+      jsonRequest("http://localhost/api/health/logs", {
+        date: new Date().toISOString(),
+        entityId: "ent_fitness",
+        steps: 9000,
+        sleepHours: 7.2,
+        restingHeartRate: 58,
+        hydrationLiters: 2.8,
+        recoveryScore: 74,
+        weightKg: 81.7,
+      }),
+    );
+    expect(createResponse.status).toBe(201);
+    const created = (await createResponse.json()) as { id: string; steps: number };
+    expect(created.steps).toBe(9000);
+
+    const patchResponse = await patchHealthLog(
+      jsonRequest("http://localhost/api/health/logs/id", { steps: 10100 }, "PATCH"),
+      { params: Promise.resolve({ id: created.id }) },
+    );
+    expect(patchResponse.status).toBe(200);
+    const patched = (await patchResponse.json()) as { steps: number };
+    expect(patched.steps).toBe(10100);
+
+    const listResponse = await getHealthLogs();
+    expect(listResponse.status).toBe(200);
+  });
+
+  it("creates and updates a workout", async () => {
+    const createResponse = await createWorkout(
+      jsonRequest("http://localhost/api/health/workouts", {
+        date: new Date().toISOString(),
+        entityId: "ent_fitness",
+        sessionType: "STRENGTH",
+        intensity: "MEDIUM",
+        durationMinutes: 45,
+        volumeLoadKg: 5400,
+        notes: "Leg day",
+      }),
+    );
+    expect(createResponse.status).toBe(201);
+    const created = (await createResponse.json()) as { id: string; durationMinutes: number };
+    expect(created.durationMinutes).toBe(45);
+
+    const patchResponse = await patchWorkout(
+      jsonRequest("http://localhost/api/health/workouts/id", { durationMinutes: 50 }, "PATCH"),
+      { params: Promise.resolve({ id: created.id }) },
+    );
+    expect(patchResponse.status).toBe(200);
+    const patched = (await patchResponse.json()) as { durationMinutes: number };
+    expect(patched.durationMinutes).toBe(50);
+
+    const listResponse = await getWorkouts();
+    expect(listResponse.status).toBe(200);
+  });
+
+  it("creates and updates family and transition records", async () => {
+    const createEventResponse = await createFamilyEvent(
+      jsonRequest("http://localhost/api/family/events", {
+        title: "Family Dinner",
+        date: new Date().toISOString(),
+        category: "FAMILY",
+        importance: "HIGH",
+        entityId: "ent_family",
+        notes: "Friday night",
+      }),
+    );
+    expect(createEventResponse.status).toBe(201);
+    const createdEvent = (await createEventResponse.json()) as { id: string; title: string };
+    expect(createdEvent.title).toBe("Family Dinner");
+
+    const patchEventResponse = await patchFamilyEvent(
+      jsonRequest("http://localhost/api/family/events/id", { title: "Family Dinner Updated" }, "PATCH"),
+      { params: Promise.resolve({ id: createdEvent.id }) },
+    );
+    expect(patchEventResponse.status).toBe(200);
+
+    const createCheckinResponse = await createRelationshipCheckin(
+      jsonRequest("http://localhost/api/family/checkins", {
+        person: "Mum",
+        relationType: "FAMILY",
+        lastMeaningfulContact: new Date().toISOString(),
+        targetCadenceDays: 7,
+        entityId: "ent_family",
+      }),
+    );
+    expect(createCheckinResponse.status).toBe(201);
+    const createdCheckin = (await createCheckinResponse.json()) as { id: string; targetCadenceDays: number };
+    expect(createdCheckin.targetCadenceDays).toBe(7);
+
+    const patchCheckinResponse = await patchRelationshipCheckin(
+      jsonRequest("http://localhost/api/family/checkins/id", { targetCadenceDays: 5 }, "PATCH"),
+      { params: Promise.resolve({ id: createdCheckin.id }) },
+    );
+    expect(patchCheckinResponse.status).toBe(200);
+
+    const createPlanResponse = await createTimeOffPlan(
+      jsonRequest("http://localhost/api/transition/plans", {
+        title: "3-week reset",
+        status: "PRE_SABBATICAL",
+        priority: "MEDIUM",
+        estimatedCostAud: 4000,
+        entityId: "ent_timeoff",
+      }),
+    );
+    expect(createPlanResponse.status).toBe(201);
+    const createdPlan = (await createPlanResponse.json()) as { id: string; estimatedCostAud: number };
+    expect(createdPlan.estimatedCostAud).toBe(4000);
+
+    const patchPlanResponse = await patchTimeOffPlan(
+      jsonRequest("http://localhost/api/transition/plans/id", { estimatedCostAud: 4500 }, "PATCH"),
+      { params: Promise.resolve({ id: createdPlan.id }) },
+    );
+    expect(patchPlanResponse.status).toBe(200);
+
+    expect((await getFamilyEvents()).status).toBe(200);
+    expect((await getRelationshipCheckins()).status).toBe(200);
+    expect((await getTimeOffPlans()).status).toBe(200);
   });
 
   it("generates strict weekly summary", async () => {

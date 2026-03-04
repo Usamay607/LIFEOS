@@ -526,6 +526,104 @@ export interface UpdateMetricInput {
   projectId?: Id;
 }
 
+export interface CreateHealthLogInput {
+  date: string;
+  entityId: Id;
+  steps: number;
+  sleepHours: number;
+  restingHeartRate: number;
+  hydrationLiters: number;
+  recoveryScore: number;
+  weightKg?: number;
+}
+
+export interface UpdateHealthLogInput {
+  date?: string;
+  entityId?: Id;
+  steps?: number;
+  sleepHours?: number;
+  restingHeartRate?: number;
+  hydrationLiters?: number;
+  recoveryScore?: number;
+  weightKg?: number;
+}
+
+export interface CreateWorkoutInput {
+  date: string;
+  entityId: Id;
+  sessionType: WorkoutSession["sessionType"];
+  intensity: WorkoutSession["intensity"];
+  durationMinutes: number;
+  volumeLoadKg?: number;
+  notes?: string;
+}
+
+export interface UpdateWorkoutInput {
+  date?: string;
+  entityId?: Id;
+  sessionType?: WorkoutSession["sessionType"];
+  intensity?: WorkoutSession["intensity"];
+  durationMinutes?: number;
+  volumeLoadKg?: number;
+  notes?: string;
+}
+
+export interface CreateFamilyEventInput {
+  title: string;
+  date: string;
+  category: FamilyEvent["category"];
+  importance: FamilyEvent["importance"];
+  entityId?: Id;
+  notes?: string;
+}
+
+export interface UpdateFamilyEventInput {
+  title?: string;
+  date?: string;
+  category?: FamilyEvent["category"];
+  importance?: FamilyEvent["importance"];
+  entityId?: Id;
+  notes?: string;
+}
+
+export interface CreateRelationshipCheckinInput {
+  person: string;
+  relationType: RelationshipCheckin["relationType"];
+  lastMeaningfulContact: string;
+  targetCadenceDays: number;
+  entityId?: Id;
+  notes?: string;
+}
+
+export interface UpdateRelationshipCheckinInput {
+  person?: string;
+  relationType?: RelationshipCheckin["relationType"];
+  lastMeaningfulContact?: string;
+  targetCadenceDays?: number;
+  entityId?: Id;
+  notes?: string;
+}
+
+export interface CreateTimeOffPlanInput {
+  title: string;
+  status: TimeOffPlan["status"];
+  targetDate?: string;
+  estimatedCostAud: number;
+  priority: TimeOffPlan["priority"];
+  entityId?: Id;
+  notes?: string;
+}
+
+export interface UpdateTimeOffPlanInput {
+  title?: string;
+  status?: TimeOffPlan["status"];
+  targetDate?: string;
+  estimatedCostAud?: number;
+  priority?: TimeOffPlan["priority"];
+  entityId?: Id;
+  notes?: string;
+}
+
 export interface LosDataSnapshot {
   areas: Area[];
   entities: Entity[];

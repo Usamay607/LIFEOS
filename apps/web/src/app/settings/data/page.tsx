@@ -5,7 +5,21 @@ import { DataStudioWorkspace } from "@/components/data-studio-workspace";
 export const dynamic = "force-dynamic";
 
 export default async function DataStudioPage() {
-  const [entities, projects, pathways, courses, accounts, metrics, transactions, upcomingExpenses] =
+  const [
+    entities,
+    projects,
+    pathways,
+    courses,
+    accounts,
+    metrics,
+    transactions,
+    upcomingExpenses,
+    healthLogs,
+    workouts,
+    familyEvents,
+    relationshipCheckins,
+    timeOffPlans,
+  ] =
     await Promise.all([
       losService.listEntities(false),
       losService.listProjects(),
@@ -15,6 +29,11 @@ export default async function DataStudioPage() {
       losService.listMetrics(),
       losService.listTransactions(),
       losService.listUpcomingExpenses(true),
+      losService.listHealthLogs(),
+      losService.listWorkouts(),
+      losService.listFamilyEvents(),
+      losService.listRelationshipCheckins(),
+      losService.listTimeOffPlans(),
     ]);
 
   return (
@@ -33,6 +52,11 @@ export default async function DataStudioPage() {
         initialMetrics={metrics}
         initialTransactions={transactions}
         initialUpcomingExpenses={upcomingExpenses}
+        initialHealthLogs={healthLogs}
+        initialWorkouts={workouts}
+        initialFamilyEvents={familyEvents}
+        initialRelationshipCheckins={relationshipCheckins}
+        initialTimeOffPlans={timeOffPlans}
       />
     </main>
   );

@@ -7,14 +7,19 @@ import type {
   CreateAccountInput,
   CreateCourseCertInput,
   CreateEntityInput,
+  CreateFamilyEventInput,
+  CreateHealthLogInput,
   FocusState,
   CreateJournalEntryInput,
   CreateMetricInput,
+  CreateRelationshipCheckinInput,
   CreatePathwayInput,
   CreateProjectInput,
   CreateTaskInput,
+  CreateTimeOffPlanInput,
   CreateTransactionInput,
   CreateUpcomingExpenseInput,
+  CreateWorkoutInput,
   Entity,
   FamilyEvent,
   FamilyOverview,
@@ -40,12 +45,17 @@ import type {
   UpdateAccountInput,
   UpdateCourseCertInput,
   UpdateEntityInput,
+  UpdateFamilyEventInput,
+  UpdateHealthLogInput,
   UpdateMetricInput,
   UpdatePathwayInput,
   UpdateProjectInput,
+  UpdateRelationshipCheckinInput,
   UpdateTaskInput,
+  UpdateTimeOffPlanInput,
   UpdateTransactionInput,
   UpdateUpcomingExpenseInput,
+  UpdateWorkoutInput,
   WeeklySummaryRequest,
   WeeklySummaryResponse,
   WorkoutSession,
@@ -1137,6 +1147,79 @@ export class LosService {
     return logs.filter((log) => new Date(log.date).getTime() >= earliestMs);
   }
 
+  async createHealthLog(input: CreateHealthLogInput): Promise<HealthDailyLog> {
+    if (!input.date || !input.entityId) {
+      throw new Error("date and entityId are required.");
+    }
+
+    const payload: HealthDailyLog = {
+      id: `health_${crypto.randomUUID()}`,
+      date: toIso(input.date) ?? new Date().toISOString(),
+      entityId: input.entityId,
+      steps: Number(input.steps ?? 0),
+      sleepHours: Number(input.sleepHours ?? 0),
+      restingHeartRate: Number(input.restingHeartRate ?? 0),
+      hydrationLiters: Number(input.hydrationLiters ?? 0),
+      recoveryScore: Number(input.recoveryScore ?? 0),
+      weightKg: input.weightKg !== undefined ? Number(input.weightKg) : undefined,
+    };
+
+    if (!this.notion) {
+      memoryStore.get().healthLogs.unshift(payload);
+      return payload;
+    }
+
+    const page = (await (this.notion as any).pages.create({
+      parent: { database_id: this.requireDatabaseId("healthLogs") },
+      properties: {
+        date: { date: { start: input.date } },
+        entity: { relation: [{ id: input.entityId }] },
+        steps: { number: payload.steps },
+        sleep_hours: { number: payload.sleepHours },
+        resting_hr: { number: payload.restingHeartRate },
+        hydration_liters: { number: payload.hydrationLiters },
+        recovery_score: { number: payload.recoveryScore },
+        weight_kg: { number: payload.weightKg ?? null },
+      },
+    })) as any;
+
+    return mapNotionPageToHealthLog(page);
+  }
+
+  async updateHealthLog(id: string, input: UpdateHealthLogInput): Promise<HealthDailyLog> {
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      const index = snapshot.healthLogs.findIndex((log) => log.id === id);
+      if (index < 0) {
+        throw new Error(`Health log not found: ${id}`);
+      }
+      const existing = snapshot.healthLogs[index];
+      if (!existing) {
+        throw new Error(`Health log not found: ${id}`);
+      }
+      const updated: HealthDailyLog = {
+        ...existing,
+        ...input,
+        date: input.date !== undefined ? toIso(input.date) ?? existing.date : existing.date,
+      };
+      snapshot.healthLogs[index] = updated;
+      return updated;
+    }
+
+    const properties: Record<string, unknown> = {};
+    if (input.date !== undefined) properties.date = input.date ? { date: { start: input.date } } : { date: null };
+    if (input.entityId !== undefined) properties.entity = { relation: input.entityId ? [{ id: input.entityId }] : [] };
+    if (input.steps !== undefined) properties.steps = { number: Number(input.steps) };
+    if (input.sleepHours !== undefined) properties.sleep_hours = { number: Number(input.sleepHours) };
+    if (input.restingHeartRate !== undefined) properties.resting_hr = { number: Number(input.restingHeartRate) };
+    if (input.hydrationLiters !== undefined) properties.hydration_liters = { number: Number(input.hydrationLiters) };
+    if (input.recoveryScore !== undefined) properties.recovery_score = { number: Number(input.recoveryScore) };
+    if (input.weightKg !== undefined) properties.weight_kg = { number: input.weightKg ?? null };
+
+    const page = (await (this.notion as any).pages.update({ page_id: id, properties })) as any;
+    return mapNotionPageToHealthLog(page);
+  }
+
   async listWorkouts(windowDays?: number): Promise<WorkoutSession[]> {
     if (!this.notion) {
       const workouts = [...memoryStore.get().workouts].sort((a, b) => b.date.localeCompare(a.date));
@@ -1155,6 +1238,77 @@ export class LosService {
     }
     const earliestMs = Date.now() - windowDays * DAY_MS;
     return workouts.filter((workout) => new Date(workout.date).getTime() >= earliestMs);
+  }
+
+  async createWorkout(input: CreateWorkoutInput): Promise<WorkoutSession> {
+    if (!input.date || !input.entityId) {
+      throw new Error("date and entityId are required.");
+    }
+
+    const payload: WorkoutSession = {
+      id: `workout_${crypto.randomUUID()}`,
+      date: toIso(input.date) ?? new Date().toISOString(),
+      entityId: input.entityId,
+      sessionType: input.sessionType,
+      intensity: input.intensity,
+      durationMinutes: Number(input.durationMinutes ?? 0),
+      volumeLoadKg: input.volumeLoadKg !== undefined ? Number(input.volumeLoadKg) : undefined,
+      notes: input.notes?.trim() || undefined,
+    };
+
+    if (!this.notion) {
+      memoryStore.get().workouts.unshift(payload);
+      return payload;
+    }
+
+    const page = (await (this.notion as any).pages.create({
+      parent: { database_id: this.requireDatabaseId("workouts") },
+      properties: {
+        date: { date: { start: input.date } },
+        entity: { relation: [{ id: input.entityId }] },
+        session_type: { select: { name: input.sessionType } },
+        intensity: { select: { name: input.intensity } },
+        duration_minutes: { number: Number(input.durationMinutes ?? 0) },
+        volume_load_kg: { number: input.volumeLoadKg ?? null },
+        notes: textProperty(input.notes?.trim() ?? ""),
+      },
+    })) as any;
+
+    return mapNotionPageToWorkout(page);
+  }
+
+  async updateWorkout(id: string, input: UpdateWorkoutInput): Promise<WorkoutSession> {
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      const index = snapshot.workouts.findIndex((workout) => workout.id === id);
+      if (index < 0) {
+        throw new Error(`Workout not found: ${id}`);
+      }
+      const existing = snapshot.workouts[index];
+      if (!existing) {
+        throw new Error(`Workout not found: ${id}`);
+      }
+      const updated: WorkoutSession = {
+        ...existing,
+        ...input,
+        date: input.date !== undefined ? toIso(input.date) ?? existing.date : existing.date,
+        notes: input.notes !== undefined ? input.notes.trim() || undefined : existing.notes,
+      };
+      snapshot.workouts[index] = updated;
+      return updated;
+    }
+
+    const properties: Record<string, unknown> = {};
+    if (input.date !== undefined) properties.date = input.date ? { date: { start: input.date } } : { date: null };
+    if (input.entityId !== undefined) properties.entity = { relation: input.entityId ? [{ id: input.entityId }] : [] };
+    if (input.sessionType !== undefined) properties.session_type = { select: { name: input.sessionType } };
+    if (input.intensity !== undefined) properties.intensity = { select: { name: input.intensity } };
+    if (input.durationMinutes !== undefined) properties.duration_minutes = { number: Number(input.durationMinutes) };
+    if (input.volumeLoadKg !== undefined) properties.volume_load_kg = { number: input.volumeLoadKg ?? null };
+    if (input.notes !== undefined) properties.notes = textProperty(input.notes.trim());
+
+    const page = (await (this.notion as any).pages.update({ page_id: id, properties })) as any;
+    return mapNotionPageToWorkout(page);
   }
 
   async listFamilyEvents(windowDays?: number): Promise<FamilyEvent[]> {
@@ -1177,6 +1331,76 @@ export class LosService {
     return events.filter((event) => new Date(event.date).getTime() <= latestMs);
   }
 
+  async createFamilyEvent(input: CreateFamilyEventInput): Promise<FamilyEvent> {
+    if (!input.title?.trim() || !input.date) {
+      throw new Error("title and date are required.");
+    }
+
+    const payload: FamilyEvent = {
+      id: `family_event_${crypto.randomUUID()}`,
+      title: input.title.trim(),
+      date: toIso(input.date) ?? new Date().toISOString(),
+      category: input.category,
+      importance: input.importance,
+      entityId: input.entityId,
+      notes: input.notes?.trim() || undefined,
+    };
+
+    if (!this.notion) {
+      memoryStore.get().familyEvents.unshift(payload);
+      return payload;
+    }
+
+    const properties: Record<string, unknown> = {
+      title: titleProperty(payload.title),
+      date: { date: { start: input.date } },
+      category: { select: { name: input.category } },
+      importance: { select: { name: input.importance } },
+      notes: textProperty(input.notes?.trim() ?? ""),
+    };
+    if (input.entityId) properties.entity = { relation: [{ id: input.entityId }] };
+
+    const page = (await (this.notion as any).pages.create({
+      parent: { database_id: this.requireDatabaseId("familyEvents") },
+      properties,
+    })) as any;
+    return mapNotionPageToFamilyEvent(page);
+  }
+
+  async updateFamilyEvent(id: string, input: UpdateFamilyEventInput): Promise<FamilyEvent> {
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      const index = snapshot.familyEvents.findIndex((event) => event.id === id);
+      if (index < 0) {
+        throw new Error(`Family event not found: ${id}`);
+      }
+      const existing = snapshot.familyEvents[index];
+      if (!existing) {
+        throw new Error(`Family event not found: ${id}`);
+      }
+      const updated: FamilyEvent = {
+        ...existing,
+        ...input,
+        title: input.title !== undefined ? input.title.trim() || existing.title : existing.title,
+        date: input.date !== undefined ? toIso(input.date) ?? existing.date : existing.date,
+        notes: input.notes !== undefined ? input.notes.trim() || undefined : existing.notes,
+      };
+      snapshot.familyEvents[index] = updated;
+      return updated;
+    }
+
+    const properties: Record<string, unknown> = {};
+    if (input.title !== undefined) properties.title = titleProperty(input.title.trim() || "Event");
+    if (input.date !== undefined) properties.date = input.date ? { date: { start: input.date } } : { date: null };
+    if (input.category !== undefined) properties.category = { select: { name: input.category } };
+    if (input.importance !== undefined) properties.importance = { select: { name: input.importance } };
+    if (input.entityId !== undefined) properties.entity = { relation: input.entityId ? [{ id: input.entityId }] : [] };
+    if (input.notes !== undefined) properties.notes = textProperty(input.notes.trim());
+
+    const page = (await (this.notion as any).pages.update({ page_id: id, properties })) as any;
+    return mapNotionPageToFamilyEvent(page);
+  }
+
   async listRelationshipCheckins(): Promise<RelationshipCheckin[]> {
     if (!this.notion) {
       return [...memoryStore.get().relationshipCheckins];
@@ -1187,6 +1411,83 @@ export class LosService {
     return response.map(mapNotionPageToRelationshipCheckin);
   }
 
+  async createRelationshipCheckin(input: CreateRelationshipCheckinInput): Promise<RelationshipCheckin> {
+    if (!input.person?.trim() || !input.lastMeaningfulContact) {
+      throw new Error("person and lastMeaningfulContact are required.");
+    }
+
+    const payload: RelationshipCheckin = {
+      id: `checkin_${crypto.randomUUID()}`,
+      person: input.person.trim(),
+      relationType: input.relationType,
+      lastMeaningfulContact: toIso(input.lastMeaningfulContact) ?? new Date().toISOString(),
+      targetCadenceDays: Number(input.targetCadenceDays ?? 7),
+      entityId: input.entityId,
+      notes: input.notes?.trim() || undefined,
+    };
+
+    if (!this.notion) {
+      memoryStore.get().relationshipCheckins.unshift(payload);
+      return payload;
+    }
+
+    const properties: Record<string, unknown> = {
+      person: titleProperty(payload.person),
+      relation_type: { select: { name: input.relationType } },
+      last_meaningful_contact: { date: { start: input.lastMeaningfulContact } },
+      target_cadence_days: { number: Number(input.targetCadenceDays ?? 7) },
+      notes: textProperty(input.notes?.trim() ?? ""),
+    };
+    if (input.entityId) properties.entity = { relation: [{ id: input.entityId }] };
+
+    const page = (await (this.notion as any).pages.create({
+      parent: { database_id: this.requireDatabaseId("relationshipCheckins") },
+      properties,
+    })) as any;
+    return mapNotionPageToRelationshipCheckin(page);
+  }
+
+  async updateRelationshipCheckin(id: string, input: UpdateRelationshipCheckinInput): Promise<RelationshipCheckin> {
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      const index = snapshot.relationshipCheckins.findIndex((checkin) => checkin.id === id);
+      if (index < 0) {
+        throw new Error(`Relationship check-in not found: ${id}`);
+      }
+      const existing = snapshot.relationshipCheckins[index];
+      if (!existing) {
+        throw new Error(`Relationship check-in not found: ${id}`);
+      }
+      const updated: RelationshipCheckin = {
+        ...existing,
+        ...input,
+        person: input.person !== undefined ? input.person.trim() || existing.person : existing.person,
+        lastMeaningfulContact:
+          input.lastMeaningfulContact !== undefined
+            ? toIso(input.lastMeaningfulContact) ?? existing.lastMeaningfulContact
+            : existing.lastMeaningfulContact,
+        notes: input.notes !== undefined ? input.notes.trim() || undefined : existing.notes,
+      };
+      snapshot.relationshipCheckins[index] = updated;
+      return updated;
+    }
+
+    const properties: Record<string, unknown> = {};
+    if (input.person !== undefined) properties.person = titleProperty(input.person.trim() || "Person");
+    if (input.relationType !== undefined) properties.relation_type = { select: { name: input.relationType } };
+    if (input.lastMeaningfulContact !== undefined) {
+      properties.last_meaningful_contact = input.lastMeaningfulContact
+        ? { date: { start: input.lastMeaningfulContact } }
+        : { date: null };
+    }
+    if (input.targetCadenceDays !== undefined) properties.target_cadence_days = { number: Number(input.targetCadenceDays) };
+    if (input.entityId !== undefined) properties.entity = { relation: input.entityId ? [{ id: input.entityId }] : [] };
+    if (input.notes !== undefined) properties.notes = textProperty(input.notes.trim());
+
+    const page = (await (this.notion as any).pages.update({ page_id: id, properties })) as any;
+    return mapNotionPageToRelationshipCheckin(page);
+  }
+
   async listTimeOffPlans(): Promise<TimeOffPlan[]> {
     if (!this.notion) {
       return [...memoryStore.get().timeOffPlans];
@@ -1195,6 +1496,82 @@ export class LosService {
     const dbId = this.requireDatabaseId("timeOffPlans");
     const response = await this.queryAllPages(dbId);
     return response.map(mapNotionPageToTimeOffPlan);
+  }
+
+  async createTimeOffPlan(input: CreateTimeOffPlanInput): Promise<TimeOffPlan> {
+    if (!input.title?.trim()) {
+      throw new Error("title is required.");
+    }
+    if (!Number.isFinite(input.estimatedCostAud)) {
+      throw new Error("estimatedCostAud must be numeric.");
+    }
+
+    const payload: TimeOffPlan = {
+      id: `timeoff_${crypto.randomUUID()}`,
+      title: input.title.trim(),
+      status: input.status,
+      targetDate: input.targetDate ? toIso(input.targetDate) : undefined,
+      estimatedCostAud: Number(input.estimatedCostAud),
+      priority: input.priority,
+      entityId: input.entityId,
+      notes: input.notes?.trim() || undefined,
+    };
+
+    if (!this.notion) {
+      memoryStore.get().timeOffPlans.unshift(payload);
+      return payload;
+    }
+
+    const properties: Record<string, unknown> = {
+      title: titleProperty(payload.title),
+      status: { select: { name: input.status } },
+      target_date: input.targetDate ? { date: { start: input.targetDate } } : { date: null },
+      estimated_cost_aud: { number: Number(input.estimatedCostAud) },
+      priority: { select: { name: input.priority } },
+      notes: textProperty(input.notes?.trim() ?? ""),
+    };
+    if (input.entityId) properties.entity = { relation: [{ id: input.entityId }] };
+
+    const page = (await (this.notion as any).pages.create({
+      parent: { database_id: this.requireDatabaseId("timeOffPlans") },
+      properties,
+    })) as any;
+    return mapNotionPageToTimeOffPlan(page);
+  }
+
+  async updateTimeOffPlan(id: string, input: UpdateTimeOffPlanInput): Promise<TimeOffPlan> {
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      const index = snapshot.timeOffPlans.findIndex((plan) => plan.id === id);
+      if (index < 0) {
+        throw new Error(`Time-off plan not found: ${id}`);
+      }
+      const existing = snapshot.timeOffPlans[index];
+      if (!existing) {
+        throw new Error(`Time-off plan not found: ${id}`);
+      }
+      const updated: TimeOffPlan = {
+        ...existing,
+        ...input,
+        title: input.title !== undefined ? input.title.trim() || existing.title : existing.title,
+        targetDate: input.targetDate !== undefined ? (input.targetDate ? toIso(input.targetDate) : undefined) : existing.targetDate,
+        notes: input.notes !== undefined ? input.notes.trim() || undefined : existing.notes,
+      };
+      snapshot.timeOffPlans[index] = updated;
+      return updated;
+    }
+
+    const properties: Record<string, unknown> = {};
+    if (input.title !== undefined) properties.title = titleProperty(input.title.trim() || "Plan");
+    if (input.status !== undefined) properties.status = { select: { name: input.status } };
+    if (input.targetDate !== undefined) properties.target_date = input.targetDate ? { date: { start: input.targetDate } } : { date: null };
+    if (input.estimatedCostAud !== undefined) properties.estimated_cost_aud = { number: Number(input.estimatedCostAud) };
+    if (input.priority !== undefined) properties.priority = { select: { name: input.priority } };
+    if (input.entityId !== undefined) properties.entity = { relation: input.entityId ? [{ id: input.entityId }] : [] };
+    if (input.notes !== undefined) properties.notes = textProperty(input.notes.trim());
+
+    const page = (await (this.notion as any).pages.update({ page_id: id, properties })) as any;
+    return mapNotionPageToTimeOffPlan(page);
   }
 
   async listJournalEntries(limit?: number): Promise<JournalEntry[]> {

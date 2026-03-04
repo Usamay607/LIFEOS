@@ -5,11 +5,16 @@ import type {
   AccountRef,
   CourseCert,
   Entity,
+  FamilyEvent,
+  HealthDailyLog,
   MetricPoint,
   Pathway,
   Project,
+  RelationshipCheckin,
+  TimeOffPlan,
   Transaction,
   UpcomingExpense,
+  WorkoutSession,
 } from "@los/types";
 import { Button } from "@/components/ui/button";
 
@@ -24,6 +29,11 @@ interface DataStudioWorkspaceProps {
   initialMetrics: MetricPoint[];
   initialTransactions: Transaction[];
   initialUpcomingExpenses: UpcomingExpense[];
+  initialHealthLogs: HealthDailyLog[];
+  initialWorkouts: WorkoutSession[];
+  initialFamilyEvents: FamilyEvent[];
+  initialRelationshipCheckins: RelationshipCheckin[];
+  initialTimeOffPlans: TimeOffPlan[];
 }
 
 const PROJECT_STATUSES: Array<Project["status"]> = ["ACTIVE", "ON_HOLD", "CEASED"];
@@ -34,6 +44,13 @@ const METRIC_CATEGORIES: Array<MetricPoint["category"]> = ["FINANCE", "HEALTH", 
 const METRIC_UNITS: Array<MetricPoint["unit"]> = ["AUD", "KG", "PERCENT", "HOURS", "COUNT"];
 const TXN_TYPES: Array<Transaction["type"]> = ["INCOME", "EXPENSE"];
 const EXPENSE_FREQUENCIES: Array<UpcomingExpense["frequency"]> = ["WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY", "ONE_OFF"];
+const WORKOUT_TYPES: Array<WorkoutSession["sessionType"]> = ["STRENGTH", "CARDIO", "MOBILITY", "SPORT", "RECOVERY"];
+const WORKOUT_INTENSITIES: Array<WorkoutSession["intensity"]> = ["LOW", "MEDIUM", "HIGH"];
+const FAMILY_CATEGORIES: Array<FamilyEvent["category"]> = ["BIRTHDAY", "ANNIVERSARY", "SOCIAL", "FAMILY", "ADMIN"];
+const FAMILY_IMPORTANCE: Array<FamilyEvent["importance"]> = ["LOW", "MEDIUM", "HIGH"];
+const RELATION_TYPES: Array<RelationshipCheckin["relationType"]> = ["FAMILY", "FRIEND", "MENTOR", "PARTNER"];
+const TIMEOFF_STATUSES: Array<TimeOffPlan["status"]> = ["PRE_SABBATICAL", "READY", "ACTIVE_TIME_OFF", "COMPLETED"];
+const TIMEOFF_PRIORITIES: Array<TimeOffPlan["priority"]> = ["LOW", "MEDIUM", "HIGH"];
 
 function panelTone(status: SaveState): string {
   if (status === "saved") return "text-emerald-200";
@@ -56,6 +73,11 @@ export function DataStudioWorkspace({
   initialMetrics,
   initialTransactions,
   initialUpcomingExpenses,
+  initialHealthLogs,
+  initialWorkouts,
+  initialFamilyEvents,
+  initialRelationshipCheckins,
+  initialTimeOffPlans,
 }: DataStudioWorkspaceProps) {
   const [projects, setProjects] = useState<Project[]>(initialProjects);
   const [pathways, setPathways] = useState<Pathway[]>(initialPathways);
@@ -64,6 +86,11 @@ export function DataStudioWorkspace({
   const [metrics, setMetrics] = useState<MetricPoint[]>(initialMetrics);
   const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
   const [upcomingExpenses, setUpcomingExpenses] = useState<UpcomingExpense[]>(initialUpcomingExpenses);
+  const [healthLogs, setHealthLogs] = useState<HealthDailyLog[]>(initialHealthLogs);
+  const [workouts, setWorkouts] = useState<WorkoutSession[]>(initialWorkouts);
+  const [familyEvents, setFamilyEvents] = useState<FamilyEvent[]>(initialFamilyEvents);
+  const [relationshipCheckins, setRelationshipCheckins] = useState<RelationshipCheckin[]>(initialRelationshipCheckins);
+  const [timeOffPlans, setTimeOffPlans] = useState<TimeOffPlan[]>(initialTimeOffPlans);
   const [status, setStatus] = useState<SaveState>("idle");
 
   const entityOptions = useMemo(() => entities.map((entity) => ({ id: entity.id, name: entity.name })), [entities]);
@@ -125,6 +152,55 @@ export function DataStudioWorkspace({
     frequency: "MONTHLY" as UpcomingExpense["frequency"],
     entityId: entityOptions[0]?.id ?? "",
     paid: false,
+  });
+
+  const [newHealthLog, setNewHealthLog] = useState({
+    date: new Date().toISOString().slice(0, 10),
+    entityId: entityOptions[0]?.id ?? "",
+    steps: "",
+    sleepHours: "",
+    restingHeartRate: "",
+    hydrationLiters: "",
+    recoveryScore: "",
+    weightKg: "",
+  });
+
+  const [newWorkout, setNewWorkout] = useState({
+    date: new Date().toISOString().slice(0, 10),
+    entityId: entityOptions[0]?.id ?? "",
+    sessionType: "STRENGTH" as WorkoutSession["sessionType"],
+    intensity: "MEDIUM" as WorkoutSession["intensity"],
+    durationMinutes: "",
+    volumeLoadKg: "",
+    notes: "",
+  });
+
+  const [newFamilyEvent, setNewFamilyEvent] = useState({
+    title: "",
+    date: new Date().toISOString().slice(0, 10),
+    category: "FAMILY" as FamilyEvent["category"],
+    importance: "MEDIUM" as FamilyEvent["importance"],
+    entityId: entityOptions[0]?.id ?? "",
+    notes: "",
+  });
+
+  const [newCheckin, setNewCheckin] = useState({
+    person: "",
+    relationType: "FAMILY" as RelationshipCheckin["relationType"],
+    lastMeaningfulContact: new Date().toISOString().slice(0, 10),
+    targetCadenceDays: "7",
+    entityId: entityOptions[0]?.id ?? "",
+    notes: "",
+  });
+
+  const [newTimeOffPlan, setNewTimeOffPlan] = useState({
+    title: "",
+    status: "PRE_SABBATICAL" as TimeOffPlan["status"],
+    targetDate: "",
+    estimatedCostAud: "",
+    priority: "MEDIUM" as TimeOffPlan["priority"],
+    entityId: entityOptions[0]?.id ?? "",
+    notes: "",
   });
 
   async function savePatch<T>(url: string, body: unknown): Promise<T | null> {
@@ -549,7 +625,7 @@ export function DataStudioWorkspace({
       <section className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
         <h2 className="text-base font-semibold text-white">Accounts</h2>
 
-        <div className="grid gap-2 md:grid-cols-8">
+        <div className="grid gap-2 md:grid-cols-9">
           <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Service" value={newAccount.service} onChange={(event) => setNewAccount((current) => ({ ...current, service: event.currentTarget.value }))} />
           <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newAccount.entityId} onChange={(event) => setNewAccount((current) => ({ ...current, entityId: event.currentTarget.value }))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
           <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Login" value={newAccount.loginIdentifier} onChange={(event) => setNewAccount((current) => ({ ...current, loginIdentifier: event.currentTarget.value }))} />
@@ -595,6 +671,232 @@ export function DataStudioWorkspace({
                 });
                 if (!updated) return;
                 setAccounts((current) => current.map((item) => item.id === updated.id ? updated : item));
+              }}>Save</Button>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+        <h2 className="text-base font-semibold text-white">Health (Daily Logs + Workouts)</h2>
+
+        <div className="grid gap-2 md:grid-cols-8">
+          <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newHealthLog.date} onChange={(event) => setNewHealthLog((current) => ({ ...current, date: event.currentTarget.value }))} />
+          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newHealthLog.entityId} onChange={(event) => setNewHealthLog((current) => ({ ...current, entityId: event.currentTarget.value }))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Steps" value={newHealthLog.steps} onChange={(event) => setNewHealthLog((current) => ({ ...current, steps: event.currentTarget.value }))} />
+          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Sleep h" value={newHealthLog.sleepHours} onChange={(event) => setNewHealthLog((current) => ({ ...current, sleepHours: event.currentTarget.value }))} />
+          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Rest HR" value={newHealthLog.restingHeartRate} onChange={(event) => setNewHealthLog((current) => ({ ...current, restingHeartRate: event.currentTarget.value }))} />
+          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Hydration L" value={newHealthLog.hydrationLiters} onChange={(event) => setNewHealthLog((current) => ({ ...current, hydrationLiters: event.currentTarget.value }))} />
+          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Recovery" value={newHealthLog.recoveryScore} onChange={(event) => setNewHealthLog((current) => ({ ...current, recoveryScore: event.currentTarget.value }))} />
+          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Weight kg" value={newHealthLog.weightKg} onChange={(event) => setNewHealthLog((current) => ({ ...current, weightKg: event.currentTarget.value }))} />
+          <Button onClick={async () => {
+            const created = await saveCreate<HealthDailyLog>("/api/health/logs", {
+              date: newHealthLog.date,
+              entityId: newHealthLog.entityId,
+              steps: Number(newHealthLog.steps) || 0,
+              sleepHours: Number(newHealthLog.sleepHours) || 0,
+              restingHeartRate: Number(newHealthLog.restingHeartRate) || 0,
+              hydrationLiters: Number(newHealthLog.hydrationLiters) || 0,
+              recoveryScore: Number(newHealthLog.recoveryScore) || 0,
+              weightKg: newHealthLog.weightKg ? Number(newHealthLog.weightKg) : undefined,
+            });
+            if (!created) return;
+            setHealthLogs((current) => [created, ...current]);
+            setNewHealthLog((current) => ({ ...current, steps: "", sleepHours: "", restingHeartRate: "", hydrationLiters: "", recoveryScore: "", weightKg: "" }));
+          }}>Add Log</Button>
+        </div>
+
+        <div className="space-y-2">
+          {healthLogs.slice(0, 10).map((log) => (
+            <article key={log.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-9">
+              <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(log.date)} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, date: event.currentTarget.value } : item))} />
+              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={log.entityId} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, entityId: event.currentTarget.value } : item))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(log.steps)} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, steps: Number(event.currentTarget.value) || 0 } : item))} />
+              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(log.sleepHours)} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, sleepHours: Number(event.currentTarget.value) || 0 } : item))} />
+              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(log.restingHeartRate)} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, restingHeartRate: Number(event.currentTarget.value) || 0 } : item))} />
+              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(log.hydrationLiters)} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, hydrationLiters: Number(event.currentTarget.value) || 0 } : item))} />
+              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(log.recoveryScore)} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, recoveryScore: Number(event.currentTarget.value) || 0 } : item))} />
+              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(log.weightKg ?? "")} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, weightKg: event.currentTarget.value ? Number(event.currentTarget.value) : undefined } : item))} />
+              <Button variant="ghost" onClick={async () => {
+                const updated = await savePatch<HealthDailyLog>(`/api/health/logs/${log.id}`, log);
+                if (!updated) return;
+                setHealthLogs((current) => current.map((item) => item.id === updated.id ? updated : item));
+              }}>Save</Button>
+            </article>
+          ))}
+        </div>
+
+        <div className="grid gap-2 md:grid-cols-8">
+          <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newWorkout.date} onChange={(event) => setNewWorkout((current) => ({ ...current, date: event.currentTarget.value }))} />
+          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newWorkout.entityId} onChange={(event) => setNewWorkout((current) => ({ ...current, entityId: event.currentTarget.value }))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newWorkout.sessionType} onChange={(event) => setNewWorkout((current) => ({ ...current, sessionType: event.currentTarget.value as WorkoutSession["sessionType"] }))}>{WORKOUT_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newWorkout.intensity} onChange={(event) => setNewWorkout((current) => ({ ...current, intensity: event.currentTarget.value as WorkoutSession["intensity"] }))}>{WORKOUT_INTENSITIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Duration min" value={newWorkout.durationMinutes} onChange={(event) => setNewWorkout((current) => ({ ...current, durationMinutes: event.currentTarget.value }))} />
+          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Volume kg" value={newWorkout.volumeLoadKg} onChange={(event) => setNewWorkout((current) => ({ ...current, volumeLoadKg: event.currentTarget.value }))} />
+          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Notes" value={newWorkout.notes} onChange={(event) => setNewWorkout((current) => ({ ...current, notes: event.currentTarget.value }))} />
+          <Button onClick={async () => {
+            const created = await saveCreate<WorkoutSession>("/api/health/workouts", {
+              date: newWorkout.date,
+              entityId: newWorkout.entityId,
+              sessionType: newWorkout.sessionType,
+              intensity: newWorkout.intensity,
+              durationMinutes: Number(newWorkout.durationMinutes) || 0,
+              volumeLoadKg: newWorkout.volumeLoadKg ? Number(newWorkout.volumeLoadKg) : undefined,
+              notes: newWorkout.notes || undefined,
+            });
+            if (!created) return;
+            setWorkouts((current) => [created, ...current]);
+            setNewWorkout((current) => ({ ...current, durationMinutes: "", volumeLoadKg: "", notes: "" }));
+          }}>Add Workout</Button>
+        </div>
+
+        <div className="space-y-2">
+          {workouts.slice(0, 10).map((workout) => (
+            <article key={workout.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-8">
+              <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(workout.date)} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, date: event.currentTarget.value } : item))} />
+              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={workout.entityId} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, entityId: event.currentTarget.value } : item))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={workout.sessionType} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, sessionType: event.currentTarget.value as WorkoutSession["sessionType"] } : item))}>{WORKOUT_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={workout.intensity} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, intensity: event.currentTarget.value as WorkoutSession["intensity"] } : item))}>{WORKOUT_INTENSITIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(workout.durationMinutes)} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, durationMinutes: Number(event.currentTarget.value) || 0 } : item))} />
+              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(workout.volumeLoadKg ?? "")} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, volumeLoadKg: event.currentTarget.value ? Number(event.currentTarget.value) : undefined } : item))} />
+              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={workout.notes ?? ""} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, notes: event.currentTarget.value || undefined } : item))} />
+              <Button variant="ghost" onClick={async () => {
+                const updated = await savePatch<WorkoutSession>(`/api/health/workouts/${workout.id}`, workout);
+                if (!updated) return;
+                setWorkouts((current) => current.map((item) => item.id === updated.id ? updated : item));
+              }}>Save</Button>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+        <h2 className="text-base font-semibold text-white">Family (Events + Check-ins)</h2>
+
+        <div className="grid gap-2 md:grid-cols-7">
+          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Event title" value={newFamilyEvent.title} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, title: event.currentTarget.value }))} />
+          <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newFamilyEvent.date} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, date: event.currentTarget.value }))} />
+          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newFamilyEvent.category} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, category: event.currentTarget.value as FamilyEvent["category"] }))}>{FAMILY_CATEGORIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newFamilyEvent.importance} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, importance: event.currentTarget.value as FamilyEvent["importance"] }))}>{FAMILY_IMPORTANCE.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newFamilyEvent.entityId} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, entityId: event.currentTarget.value }))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Notes" value={newFamilyEvent.notes} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, notes: event.currentTarget.value }))} />
+          <Button onClick={async () => {
+            const created = await saveCreate<FamilyEvent>("/api/family/events", {
+              title: newFamilyEvent.title,
+              date: newFamilyEvent.date,
+              category: newFamilyEvent.category,
+              importance: newFamilyEvent.importance,
+              entityId: newFamilyEvent.entityId || undefined,
+              notes: newFamilyEvent.notes || undefined,
+            });
+            if (!created) return;
+            setFamilyEvents((current) => [created, ...current]);
+            setNewFamilyEvent((current) => ({ ...current, title: "", notes: "" }));
+          }}>Add Event</Button>
+        </div>
+
+        <div className="space-y-2">
+          {familyEvents.slice(0, 10).map((eventRow) => (
+            <article key={eventRow.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-7">
+              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={eventRow.title} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, title: event.currentTarget.value } : item))} />
+              <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(eventRow.date)} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, date: event.currentTarget.value } : item))} />
+              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={eventRow.category} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, category: event.currentTarget.value as FamilyEvent["category"] } : item))}>{FAMILY_CATEGORIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={eventRow.importance} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, importance: event.currentTarget.value as FamilyEvent["importance"] } : item))}>{FAMILY_IMPORTANCE.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={eventRow.entityId ?? ""} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, entityId: event.currentTarget.value || undefined } : item))}><option value="">No entity</option>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={eventRow.notes ?? ""} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, notes: event.currentTarget.value || undefined } : item))} />
+              <Button variant="ghost" onClick={async () => {
+                const updated = await savePatch<FamilyEvent>(`/api/family/events/${eventRow.id}`, eventRow);
+                if (!updated) return;
+                setFamilyEvents((current) => current.map((item) => item.id === updated.id ? updated : item));
+              }}>Save</Button>
+            </article>
+          ))}
+        </div>
+
+        <div className="grid gap-2 md:grid-cols-7">
+          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Person" value={newCheckin.person} onChange={(event) => setNewCheckin((current) => ({ ...current, person: event.currentTarget.value }))} />
+          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newCheckin.relationType} onChange={(event) => setNewCheckin((current) => ({ ...current, relationType: event.currentTarget.value as RelationshipCheckin["relationType"] }))}>{RELATION_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+          <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newCheckin.lastMeaningfulContact} onChange={(event) => setNewCheckin((current) => ({ ...current, lastMeaningfulContact: event.currentTarget.value }))} />
+          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Cadence days" value={newCheckin.targetCadenceDays} onChange={(event) => setNewCheckin((current) => ({ ...current, targetCadenceDays: event.currentTarget.value }))} />
+          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newCheckin.entityId} onChange={(event) => setNewCheckin((current) => ({ ...current, entityId: event.currentTarget.value }))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Notes" value={newCheckin.notes} onChange={(event) => setNewCheckin((current) => ({ ...current, notes: event.currentTarget.value }))} />
+          <Button onClick={async () => {
+            const created = await saveCreate<RelationshipCheckin>("/api/family/checkins", {
+              person: newCheckin.person,
+              relationType: newCheckin.relationType,
+              lastMeaningfulContact: newCheckin.lastMeaningfulContact,
+              targetCadenceDays: Number(newCheckin.targetCadenceDays) || 7,
+              entityId: newCheckin.entityId || undefined,
+              notes: newCheckin.notes || undefined,
+            });
+            if (!created) return;
+            setRelationshipCheckins((current) => [created, ...current]);
+            setNewCheckin((current) => ({ ...current, person: "", notes: "" }));
+          }}>Add Check-in</Button>
+        </div>
+
+        <div className="space-y-2">
+          {relationshipCheckins.slice(0, 10).map((checkin) => (
+            <article key={checkin.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-7">
+              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={checkin.person} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, person: event.currentTarget.value } : item))} />
+              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={checkin.relationType} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, relationType: event.currentTarget.value as RelationshipCheckin["relationType"] } : item))}>{RELATION_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+              <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(checkin.lastMeaningfulContact)} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, lastMeaningfulContact: event.currentTarget.value } : item))} />
+              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(checkin.targetCadenceDays)} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, targetCadenceDays: Number(event.currentTarget.value) || 0 } : item))} />
+              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={checkin.entityId ?? ""} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, entityId: event.currentTarget.value || undefined } : item))}><option value="">No entity</option>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={checkin.notes ?? ""} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, notes: event.currentTarget.value || undefined } : item))} />
+              <Button variant="ghost" onClick={async () => {
+                const updated = await savePatch<RelationshipCheckin>(`/api/family/checkins/${checkin.id}`, checkin);
+                if (!updated) return;
+                setRelationshipCheckins((current) => current.map((item) => item.id === updated.id ? updated : item));
+              }}>Save</Button>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+        <h2 className="text-base font-semibold text-white">Transition (Time-Off Plans)</h2>
+
+        <div className="grid gap-2 md:grid-cols-8">
+          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Plan title" value={newTimeOffPlan.title} onChange={(event) => setNewTimeOffPlan((current) => ({ ...current, title: event.currentTarget.value }))} />
+          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newTimeOffPlan.status} onChange={(event) => setNewTimeOffPlan((current) => ({ ...current, status: event.currentTarget.value as TimeOffPlan["status"] }))}>{TIMEOFF_STATUSES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+          <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newTimeOffPlan.targetDate} onChange={(event) => setNewTimeOffPlan((current) => ({ ...current, targetDate: event.currentTarget.value }))} />
+          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Estimated AUD" value={newTimeOffPlan.estimatedCostAud} onChange={(event) => setNewTimeOffPlan((current) => ({ ...current, estimatedCostAud: event.currentTarget.value }))} />
+          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newTimeOffPlan.priority} onChange={(event) => setNewTimeOffPlan((current) => ({ ...current, priority: event.currentTarget.value as TimeOffPlan["priority"] }))}>{TIMEOFF_PRIORITIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newTimeOffPlan.entityId} onChange={(event) => setNewTimeOffPlan((current) => ({ ...current, entityId: event.currentTarget.value }))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Notes" value={newTimeOffPlan.notes} onChange={(event) => setNewTimeOffPlan((current) => ({ ...current, notes: event.currentTarget.value }))} />
+          <Button onClick={async () => {
+            const amount = Number(newTimeOffPlan.estimatedCostAud);
+            if (!Number.isFinite(amount)) return;
+            const created = await saveCreate<TimeOffPlan>("/api/transition/plans", {
+              title: newTimeOffPlan.title,
+              status: newTimeOffPlan.status,
+              targetDate: newTimeOffPlan.targetDate || undefined,
+              estimatedCostAud: amount,
+              priority: newTimeOffPlan.priority,
+              entityId: newTimeOffPlan.entityId || undefined,
+              notes: newTimeOffPlan.notes || undefined,
+            });
+            if (!created) return;
+            setTimeOffPlans((current) => [created, ...current]);
+            setNewTimeOffPlan((current) => ({ ...current, title: "", estimatedCostAud: "", targetDate: "", notes: "" }));
+          }}>Add Plan</Button>
+        </div>
+
+        <div className="space-y-2">
+          {timeOffPlans.slice(0, 12).map((plan) => (
+            <article key={plan.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-8">
+              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={plan.title} onChange={(event) => setTimeOffPlans((current) => current.map((item) => item.id === plan.id ? { ...item, title: event.currentTarget.value } : item))} />
+              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={plan.status} onChange={(event) => setTimeOffPlans((current) => current.map((item) => item.id === plan.id ? { ...item, status: event.currentTarget.value as TimeOffPlan["status"] } : item))}>{TIMEOFF_STATUSES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+              <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(plan.targetDate)} onChange={(event) => setTimeOffPlans((current) => current.map((item) => item.id === plan.id ? { ...item, targetDate: event.currentTarget.value || undefined } : item))} />
+              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(plan.estimatedCostAud)} onChange={(event) => setTimeOffPlans((current) => current.map((item) => item.id === plan.id ? { ...item, estimatedCostAud: Number(event.currentTarget.value) || 0 } : item))} />
+              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={plan.priority} onChange={(event) => setTimeOffPlans((current) => current.map((item) => item.id === plan.id ? { ...item, priority: event.currentTarget.value as TimeOffPlan["priority"] } : item))}>{TIMEOFF_PRIORITIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={plan.entityId ?? ""} onChange={(event) => setTimeOffPlans((current) => current.map((item) => item.id === plan.id ? { ...item, entityId: event.currentTarget.value || undefined } : item))}><option value="">No entity</option>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={plan.notes ?? ""} onChange={(event) => setTimeOffPlans((current) => current.map((item) => item.id === plan.id ? { ...item, notes: event.currentTarget.value || undefined } : item))} />
+              <Button variant="ghost" onClick={async () => {
+                const updated = await savePatch<TimeOffPlan>(`/api/transition/plans/${plan.id}`, plan);
+                if (!updated) return;
+                setTimeOffPlans((current) => current.map((item) => item.id === updated.id ? updated : item));
               }}>Save</Button>
             </article>
           ))}
