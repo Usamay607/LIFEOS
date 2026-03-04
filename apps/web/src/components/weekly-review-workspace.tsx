@@ -144,6 +144,26 @@ export function WeeklyReviewWorkspace({ dashboard }: WeeklyReviewWorkspaceProps)
         ? "border-amber-300/60 bg-amber-300/15 text-amber-100"
         : "border-emerald-300/60 bg-emerald-300/15 text-emerald-100";
 
+  async function postJson<T>(url: string, body: unknown): Promise<T> {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const fallbackError = `Request failed (${response.status})`;
+      try {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error?.trim() || fallbackError);
+      } catch {
+        throw new Error(fallbackError);
+      }
+    }
+
+    return (await response.json()) as T;
+  }
+
   async function copyBrief() {
     const topOutcomes = outcomes.map((item, index) => `${index + 1}. ${item.trim()}`).join("\n");
     const wins = winsText
@@ -180,30 +200,23 @@ export function WeeklyReviewWorkspace({ dashboard }: WeeklyReviewWorkspaceProps)
   async function generateDraft() {
     setDraftLoading(true);
     setDraftError(null);
-
-    const response = await fetch("/api/reviews/weekly-draft", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    try {
+      const payload = await postJson<WeeklyReviewDraftResponse>("/api/reviews/weekly-draft", {
         reviewDate: new Date().toISOString(),
         taskWindowDays: 7,
-      }),
-    });
+      });
 
-    if (!response.ok) {
-      setDraftError("Draft generation failed. Please retry.");
+      setWinsText(payload.wins.join("\n"));
+      setStuckText(payload.stuck.join("\n"));
+      setRunwayCommentary(payload.runwayCommentary);
+      setOutcomes((current) =>
+        current.map((item, index) => (item.trim() ? item : payload.topThreeNextWeek[index] ?? item)),
+      );
+    } catch (error) {
+      setDraftError(error instanceof Error ? error.message : "Draft generation failed. Please retry.");
+    } finally {
       setDraftLoading(false);
-      return;
     }
-
-    const payload = (await response.json()) as WeeklyReviewDraftResponse;
-    setWinsText(payload.wins.join("\n"));
-    setStuckText(payload.stuck.join("\n"));
-    setRunwayCommentary(payload.runwayCommentary);
-    setOutcomes((current) =>
-      current.map((item, index) => (item.trim() ? item : payload.topThreeNextWeek[index] ?? item)),
-    );
-    setDraftLoading(false);
   }
 
   async function saveReview() {
@@ -214,10 +227,8 @@ export function WeeklyReviewWorkspace({ dashboard }: WeeklyReviewWorkspaceProps)
     setSaveState("saving");
     const wins = splitLines(winsText);
     const stuck = splitLines(stuckText);
-    const response = await fetch("/api/reviews", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    try {
+      await postJson("/api/reviews", {
         reviewDate: new Date().toISOString(),
         wins,
         stuck,
@@ -225,16 +236,14 @@ export function WeeklyReviewWorkspace({ dashboard }: WeeklyReviewWorkspaceProps)
         runwayCommentary:
           runwayCommentary.trim() ||
           `Runway is ${dashboard.runway.monthsOfFreedom} months with monthly burn at ${dashboard.runway.monthlyBurn.toLocaleString("en-AU")} AUD.`,
-      }),
-    });
+      });
 
-    if (!response.ok) {
+      setSaveState("saved");
+      window.setTimeout(() => setSaveState("idle"), 1500);
+    } catch {
       setSaveState("error");
-      return;
+      window.setTimeout(() => setSaveState("idle"), 2000);
     }
-
-    setSaveState("saved");
-    window.setTimeout(() => setSaveState("idle"), 1500);
   }
 
   return (
