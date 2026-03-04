@@ -15,6 +15,7 @@ import type {
   CreateRelationshipCheckinInput,
   CreatePathwayInput,
   CreateProjectInput,
+  CreateReviewNoteInput,
   CreateTaskInput,
   CreateTimeOffPlanInput,
   CreateTransactionInput,
@@ -32,6 +33,7 @@ import type {
   MetricPoint,
   Pathway,
   Project,
+  ReviewNote,
   RedactionLevel,
   SystemReadiness,
   RunwayResult,
@@ -56,6 +58,9 @@ import type {
   UpdateTransactionInput,
   UpdateUpcomingExpenseInput,
   UpdateWorkoutInput,
+  UpcomingExpenseReminderResponse,
+  WeeklyReviewDraftRequest,
+  WeeklyReviewDraftResponse,
   WeeklySummaryRequest,
   WeeklySummaryResponse,
   WorkoutSession,
@@ -74,6 +79,7 @@ import {
   mapNotionPageToMetric,
   mapNotionPageToPathway,
   mapNotionPageToProject,
+  mapNotionPageToReview,
   mapNotionPageToTask,
   mapNotionPageToTransaction,
   mapNotionPageToUpcomingExpense,
@@ -122,6 +128,16 @@ function round2(value: number): number {
 function dayKey(date: string | Date, timezone: string): string {
   const value = typeof date === "string" ? new Date(date) : date;
   return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(value);
+}
+
+function daysUntilDate(date: string): number {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
+  const targetDate = new Date(date);
+  targetDate.setHours(0, 0, 0, 0);
+
+  return Math.ceil((targetDate.getTime() - startOfToday.getTime()) / DAY_MS);
 }
 
 export class LosService {
@@ -961,6 +977,172 @@ export class LosService {
       .map(mapNotionPageToUpcomingExpense)
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
     return includePaid ? rows : rows.slice(0, 5);
+  }
+
+  async getUpcomingExpenseReminders(windowDays = 14): Promise<UpcomingExpenseReminderResponse> {
+    const normalizedWindow = Math.max(1, Math.min(60, Math.round(windowDays)));
+    const expenses = await this.listUpcomingExpenses(false);
+
+    const reminders = expenses
+      .map((expense) => {
+        const daysUntilDue = daysUntilDate(expense.dueDate);
+        const severity: UpcomingExpenseReminderResponse["reminders"][number]["severity"] =
+          daysUntilDue < 0 ? "OVERDUE" : daysUntilDue <= 3 ? "DUE_SOON" : "UPCOMING";
+
+        return {
+          expenseId: expense.id,
+          bill: expense.bill,
+          amount: expense.amount,
+          dueDate: expense.dueDate,
+          daysUntilDue,
+          severity,
+        };
+      })
+      .filter((item) => item.daysUntilDue <= normalizedWindow)
+      .sort((a, b) => a.daysUntilDue - b.daysUntilDue || b.amount - a.amount)
+      .slice(0, 20);
+
+    return {
+      generatedAt: new Date().toISOString(),
+      windowDays: normalizedWindow,
+      overdueCount: reminders.filter((item) => item.severity === "OVERDUE").length,
+      dueSoonCount: reminders.filter((item) => item.severity === "DUE_SOON").length,
+      reminders,
+    };
+  }
+
+  async generateWeeklyReviewDraft(request: WeeklyReviewDraftRequest): Promise<WeeklyReviewDraftResponse> {
+    const validWindow =
+      Number.isFinite(request.taskWindowDays) && Math.round(request.taskWindowDays) > 0 && Math.round(request.taskWindowDays) <= 90;
+    if (!request.reviewDate || !validWindow) {
+      throw new Error("reviewDate and taskWindowDays(1-90) are required.");
+    }
+
+    const normalizedWindow = Math.round(request.taskWindowDays);
+    const [tasks, projects, runway, reminders] = await Promise.all([
+      this.listTasks(),
+      this.listProjects(),
+      this.getRunway(),
+      this.getUpcomingExpenseReminders(14),
+    ]);
+
+    const windowStart = Date.now() - normalizedWindow * DAY_MS;
+    const completedInWindow = tasks
+      .filter((task) => task.status === "DONE" && new Date(task.createdAt).getTime() >= windowStart)
+      .sort((a, b) => (a.dueDate ?? "").localeCompare(b.dueDate ?? ""));
+    const waitingTasks = tasks.filter((task) => task.status === "WAITING");
+    const activeQueue = tasks
+      .filter((task) => task.status === "NEXT" || task.status === "DOING")
+      .sort((a, b) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999"));
+    const onHoldProjects = projects.filter((project) => project.status === "ON_HOLD");
+
+    const wins =
+      completedInWindow.slice(0, 3).map((task) => `Completed: ${task.title}`) ||
+      [];
+    if (wins.length === 0) {
+      wins.push("Maintained consistent LOS usage and visibility during the week.");
+    }
+
+    const stuck = [
+      ...waitingTasks.slice(0, 2).map((task) => `Waiting task: ${task.title}`),
+      ...onHoldProjects.slice(0, 2).map((project) => `On-hold project: ${project.name}`),
+      ...reminders.reminders
+        .filter((item) => item.severity !== "UPCOMING")
+        .slice(0, 2)
+        .map(
+          (item) =>
+            `${item.severity === "OVERDUE" ? "Overdue expense" : "Due soon expense"}: ${item.bill} (${item.amount.toLocaleString("en-AU")} AUD)`,
+        ),
+    ]
+      .slice(0, 5)
+      .filter(Boolean);
+
+    const topThreeNextWeek = activeQueue.slice(0, 3).map((task) => task.title);
+    if (topThreeNextWeek.length < 3) {
+      const milestoneBackfill = projects
+        .filter((project) => project.status === "ACTIVE" && project.nextMilestone)
+        .map((project) => `Project milestone: ${project.nextMilestone}`);
+      for (const milestone of milestoneBackfill) {
+        if (topThreeNextWeek.length >= 3) break;
+        topThreeNextWeek.push(milestone);
+      }
+    }
+    while (topThreeNextWeek.length < 3) {
+      topThreeNextWeek.push("Protect two 90-minute deep work blocks and close one key task.");
+    }
+
+    const runwayCommentary =
+      runway.monthsOfFreedom >= 18
+        ? `Runway is strong at ${runway.monthsOfFreedom} months. Keep momentum and protect margin by clearing at least one high-cost distraction.`
+        : runway.monthsOfFreedom >= 9
+          ? `Runway is stable at ${runway.monthsOfFreedom} months. Maintain expense discipline and complete top-priority outcomes before adding new commitments.`
+          : `Runway is tight at ${runway.monthsOfFreedom} months. Prioritize revenue-protecting tasks and reduce non-essential expenses this week.`;
+
+    return {
+      reviewDate: request.reviewDate,
+      wins,
+      stuck: stuck.length ? stuck : ["No major blockers captured. Keep monitoring WAITING tasks."],
+      topThreeNextWeek: topThreeNextWeek.slice(0, 3),
+      runwayCommentary,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  async listReviews(limit = 12): Promise<ReviewNote[]> {
+    const normalizedLimit = Math.max(1, Math.min(50, Math.round(limit)));
+
+    if (!this.notion) {
+      return [...memoryStore.get().reviews]
+        .sort((a, b) => b.reviewDate.localeCompare(a.reviewDate))
+        .slice(0, normalizedLimit);
+    }
+
+    const dbId = this.requireDatabaseId("reviews");
+    const response = await this.queryAllPages(dbId);
+    return response
+      .map(mapNotionPageToReview)
+      .sort((a, b) => b.reviewDate.localeCompare(a.reviewDate))
+      .slice(0, normalizedLimit);
+  }
+
+  async createReviewNote(input: CreateReviewNoteInput): Promise<ReviewNote> {
+    if (!input.reviewDate) {
+      throw new Error("reviewDate is required.");
+    }
+
+    const normalize = (items: string[]): string[] =>
+      items
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .slice(0, 12);
+
+    const payload: ReviewNote = {
+      id: `review_${crypto.randomUUID()}`,
+      reviewDate: toIso(input.reviewDate) ?? new Date().toISOString(),
+      wins: normalize(input.wins),
+      stuck: normalize(input.stuck),
+      topThreeNextWeek: normalize(input.topThreeNextWeek).slice(0, 3),
+      runwayCommentary: input.runwayCommentary?.trim() || "",
+    };
+
+    if (!this.notion) {
+      const snapshot = memoryStore.get();
+      snapshot.reviews.unshift(payload);
+      return payload;
+    }
+
+    const page = (await (this.notion as any).pages.create({
+      parent: { database_id: this.requireDatabaseId("reviews") },
+      properties: {
+        review_date: { date: { start: payload.reviewDate } },
+        wins: textProperty(payload.wins.join(" | ")),
+        stuck: textProperty(payload.stuck.join(" | ")),
+        top_three_next_week: textProperty(payload.topThreeNextWeek.join(" | ")),
+        runway_commentary: textProperty(payload.runwayCommentary),
+      },
+    })) as any;
+
+    return mapNotionPageToReview(page);
   }
 
   async getRunway(): Promise<RunwayResult> {
@@ -2030,6 +2212,7 @@ export class LosService {
       relationshipCheckins,
       timeOffPlans,
       journalEntries,
+      reviews,
     ] = await Promise.all([
       this.listAreas(false),
       this.listEntities(),
@@ -2047,6 +2230,7 @@ export class LosService {
       this.listRelationshipCheckins(),
       this.listTimeOffPlans(),
       this.listJournalEntries(),
+      this.listReviews(),
     ]);
 
     return {
@@ -2066,7 +2250,7 @@ export class LosService {
       relationshipCheckins,
       timeOffPlans,
       journalEntries,
-      reviews: [],
+      reviews,
     };
   }
 

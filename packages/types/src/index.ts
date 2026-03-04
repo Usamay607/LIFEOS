@@ -287,6 +287,37 @@ export interface WeeklySummaryResponse {
   redactionApplied: RedactionLevel;
 }
 
+export interface WeeklyReviewDraftRequest {
+  reviewDate: string;
+  taskWindowDays: number;
+}
+
+export interface WeeklyReviewDraftResponse {
+  reviewDate: string;
+  wins: string[];
+  stuck: string[];
+  topThreeNextWeek: string[];
+  runwayCommentary: string;
+  generatedAt: string;
+}
+
+export interface UpcomingExpenseReminder {
+  expenseId: Id;
+  bill: string;
+  amount: number;
+  dueDate: string;
+  daysUntilDue: number;
+  severity: "OVERDUE" | "DUE_SOON" | "UPCOMING";
+}
+
+export interface UpcomingExpenseReminderResponse {
+  generatedAt: string;
+  windowDays: number;
+  overdueCount: number;
+  dueSoonCount: number;
+  reminders: UpcomingExpenseReminder[];
+}
+
 export interface FocusState {
   date: string;
   outcomes: string[];
@@ -514,6 +545,14 @@ export interface CreateMetricInput {
   date: string;
   entityId?: Id;
   projectId?: Id;
+}
+
+export interface CreateReviewNoteInput {
+  reviewDate: string;
+  wins: string[];
+  stuck: string[];
+  topThreeNextWeek: string[];
+  runwayCommentary: string;
 }
 
 export interface UpdateMetricInput {

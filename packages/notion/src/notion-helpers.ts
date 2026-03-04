@@ -7,6 +7,7 @@ import type {
   JournalEntry,
   Pathway,
   Project,
+  ReviewNote,
   Task,
   Transaction,
   UpcomingExpense,
@@ -242,6 +243,23 @@ export function mapNotionPageToJournalEntry(page: NotionPage): JournalEntry {
     entityId: fromRelationIds(page, "entity")[0] || undefined,
     energyScore: fromNumber(page, "energy_score") || undefined,
     focusScore: fromNumber(page, "focus_score") || undefined,
+  };
+}
+
+export function mapNotionPageToReview(page: NotionPage): ReviewNote {
+  const parseList = (value: string): string[] =>
+    value
+      .split("|")
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+  return {
+    id: page.id,
+    reviewDate: fromDate(page, "review_date") ?? new Date().toISOString(),
+    wins: parseList(fromRichText(page, "wins")),
+    stuck: parseList(fromRichText(page, "stuck")),
+    topThreeNextWeek: parseList(fromRichText(page, "top_three_next_week")),
+    runwayCommentary: fromRichText(page, "runway_commentary"),
   };
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { HomeDashboardData } from "@los/types";
+import type { HomeDashboardData, WeeklyReviewDraftResponse } from "@los/types";
 import { Button } from "@/components/ui/button";
 import { WeeklySummaryPanel } from "@/components/weekly-summary-panel";
 import { daysUntil, formatDate } from "@/lib/format";
@@ -34,6 +34,12 @@ export function WeeklyReviewWorkspace({ dashboard }: WeeklyReviewWorkspaceProps)
   const [remainingSeconds, setRemainingSeconds] = useState(20 * 60);
   const [running, setRunning] = useState(false);
   const [outcomes, setOutcomes] = useState<string[]>(["", "", ""]);
+  const [winsText, setWinsText] = useState("");
+  const [stuckText, setStuckText] = useState("");
+  const [runwayCommentary, setRunwayCommentary] = useState("");
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [copied, setCopied] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
@@ -48,6 +54,9 @@ export function WeeklyReviewWorkspace({ dashboard }: WeeklyReviewWorkspaceProps)
         checklist?: unknown;
         outcomes?: unknown;
         remainingSeconds?: unknown;
+        winsText?: unknown;
+        stuckText?: unknown;
+        runwayCommentary?: unknown;
       };
 
       if (Array.isArray(parsed.checklist) && parsed.checklist.length === CHECKLIST_ITEMS.length) {
@@ -60,6 +69,16 @@ export function WeeklyReviewWorkspace({ dashboard }: WeeklyReviewWorkspaceProps)
 
       if (typeof parsed.remainingSeconds === "number" && Number.isFinite(parsed.remainingSeconds)) {
         setRemainingSeconds(Math.max(0, Math.round(parsed.remainingSeconds)));
+      }
+
+      if (typeof parsed.winsText === "string") {
+        setWinsText(parsed.winsText);
+      }
+      if (typeof parsed.stuckText === "string") {
+        setStuckText(parsed.stuckText);
+      }
+      if (typeof parsed.runwayCommentary === "string") {
+        setRunwayCommentary(parsed.runwayCommentary);
       }
     } catch {
       // Ignore malformed storage payloads.
@@ -76,9 +95,12 @@ export function WeeklyReviewWorkspace({ dashboard }: WeeklyReviewWorkspaceProps)
         checklist,
         outcomes,
         remainingSeconds,
+        winsText,
+        stuckText,
+        runwayCommentary,
       }),
     );
-  }, [checklist, outcomes, remainingSeconds, hydrated]);
+  }, [checklist, outcomes, remainingSeconds, winsText, stuckText, runwayCommentary, hydrated]);
 
   useEffect(() => {
     if (!running) {
@@ -124,10 +146,20 @@ export function WeeklyReviewWorkspace({ dashboard }: WeeklyReviewWorkspaceProps)
 
   async function copyBrief() {
     const topOutcomes = outcomes.map((item, index) => `${index + 1}. ${item.trim()}`).join("\n");
+    const wins = winsText
+      .split("\n")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 3)
+      .map((item) => `- ${item}`)
+      .join("\n");
     const text = [
       `LOS Weekly Review - ${new Date().toLocaleDateString("en-AU")}`,
       `Checklist completion: ${completionPercent}%`,
       `Runway: ${dashboard.runway.monthsOfFreedom} months`,
+      "",
+      "Wins:",
+      wins || "- No wins captured yet",
       "",
       "Top 3 outcomes:",
       topOutcomes,
@@ -136,6 +168,73 @@ export function WeeklyReviewWorkspace({ dashboard }: WeeklyReviewWorkspaceProps)
     await navigator.clipboard.writeText(text);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1200);
+  }
+
+  function splitLines(value: string): string[] {
+    return value
+      .split("\n")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  async function generateDraft() {
+    setDraftLoading(true);
+    setDraftError(null);
+
+    const response = await fetch("/api/reviews/weekly-draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reviewDate: new Date().toISOString(),
+        taskWindowDays: 7,
+      }),
+    });
+
+    if (!response.ok) {
+      setDraftError("Draft generation failed. Please retry.");
+      setDraftLoading(false);
+      return;
+    }
+
+    const payload = (await response.json()) as WeeklyReviewDraftResponse;
+    setWinsText(payload.wins.join("\n"));
+    setStuckText(payload.stuck.join("\n"));
+    setRunwayCommentary(payload.runwayCommentary);
+    setOutcomes((current) =>
+      current.map((item, index) => (item.trim() ? item : payload.topThreeNextWeek[index] ?? item)),
+    );
+    setDraftLoading(false);
+  }
+
+  async function saveReview() {
+    if (!reviewReady) {
+      return;
+    }
+
+    setSaveState("saving");
+    const wins = splitLines(winsText);
+    const stuck = splitLines(stuckText);
+    const response = await fetch("/api/reviews", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reviewDate: new Date().toISOString(),
+        wins,
+        stuck,
+        topThreeNextWeek: outcomes.map((item) => item.trim()).filter(Boolean).slice(0, 3),
+        runwayCommentary:
+          runwayCommentary.trim() ||
+          `Runway is ${dashboard.runway.monthsOfFreedom} months with monthly burn at ${dashboard.runway.monthlyBurn.toLocaleString("en-AU")} AUD.`,
+      }),
+    });
+
+    if (!response.ok) {
+      setSaveState("error");
+      return;
+    }
+
+    setSaveState("saved");
+    window.setTimeout(() => setSaveState("idle"), 1500);
   }
 
   return (
@@ -167,6 +266,11 @@ export function WeeklyReviewWorkspace({ dashboard }: WeeklyReviewWorkspaceProps)
                 setRemainingSeconds(20 * 60);
                 setChecklist(CHECKLIST_ITEMS.map(() => false));
                 setOutcomes(["", "", ""]);
+                setWinsText("");
+                setStuckText("");
+                setRunwayCommentary("");
+                setDraftError(null);
+                setSaveState("idle");
               }}
             >
               Clear Review
@@ -261,6 +365,12 @@ export function WeeklyReviewWorkspace({ dashboard }: WeeklyReviewWorkspaceProps)
             <Button disabled={!reviewReady} onClick={() => void copyBrief()}>
               {copied ? "Copied" : "Copy Weekly Brief"}
             </Button>
+            <Button variant="ghost" disabled={draftLoading} onClick={() => void generateDraft()}>
+              {draftLoading ? "Generating Draft..." : "Generate Draft"}
+            </Button>
+            <Button disabled={!reviewReady || saveState === "saving"} onClick={() => void saveReview()}>
+              {saveState === "saving" ? "Saving..." : "Save Review"}
+            </Button>
             <div
               className={`rounded-lg border px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] ${
                 reviewReady
@@ -270,6 +380,45 @@ export function WeeklyReviewWorkspace({ dashboard }: WeeklyReviewWorkspaceProps)
             >
               {reviewReady ? "Review Ready" : "Complete checklist + outcomes"}
             </div>
+            {saveState === "saved" ? (
+              <div className="rounded-lg border border-emerald-300/60 bg-emerald-300/15 px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-emerald-100">
+                Synced to Notion
+              </div>
+            ) : null}
+            {saveState === "error" ? (
+              <div className="rounded-lg border border-rose-300/60 bg-rose-300/15 px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-rose-100">
+                Save Failed
+              </div>
+            ) : null}
+            {draftError ? (
+              <div className="rounded-lg border border-rose-300/60 bg-rose-300/15 px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-rose-100">
+                {draftError}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-4 grid gap-2">
+            <label className="text-xs font-semibold uppercase tracking-[0.08em] text-white/70">Wins (one per line)</label>
+            <textarea
+              value={winsText}
+              onChange={(event) => setWinsText(event.currentTarget.value)}
+              className="min-h-20 w-full rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white outline-none focus:border-teal-300"
+              placeholder="Completed high-impact task..."
+            />
+            <label className="text-xs font-semibold uppercase tracking-[0.08em] text-white/70">Stuck / Risks (one per line)</label>
+            <textarea
+              value={stuckText}
+              onChange={(event) => setStuckText(event.currentTarget.value)}
+              className="min-h-20 w-full rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white outline-none focus:border-teal-300"
+              placeholder="Waiting on approval..."
+            />
+            <label className="text-xs font-semibold uppercase tracking-[0.08em] text-white/70">Runway Commentary</label>
+            <textarea
+              value={runwayCommentary}
+              onChange={(event) => setRunwayCommentary(event.currentTarget.value)}
+              className="min-h-20 w-full rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white outline-none focus:border-teal-300"
+              placeholder="Financial posture for next week..."
+            />
           </div>
         </div>
 

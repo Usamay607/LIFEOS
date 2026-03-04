@@ -30,6 +30,9 @@ import { GET as getRelationshipCheckins, POST as createRelationshipCheckin } fro
 import { PATCH as patchRelationshipCheckin } from "./family/checkins/[id]/route";
 import { GET as getTimeOffPlans, POST as createTimeOffPlan } from "./transition/plans/route";
 import { PATCH as patchTimeOffPlan } from "./transition/plans/[id]/route";
+import { GET as getReviews, POST as createReview } from "./reviews/route";
+import { POST as weeklyDraft } from "./reviews/weekly-draft/route";
+import { GET as getExpenseReminders } from "./upcoming-expenses/reminders/route";
 
 function jsonRequest(url: string, body: unknown, method = "POST") {
   return new Request(url, {
@@ -439,6 +442,56 @@ describe("web API routes", () => {
     expect((await getFamilyEvents()).status).toBe(200);
     expect((await getRelationshipCheckins()).status).toBe(200);
     expect((await getTimeOffPlans()).status).toBe(200);
+  });
+
+  it("generates weekly draft, saves review note, and lists reviews", async () => {
+    const draftResponse = await weeklyDraft(
+      jsonRequest("http://localhost/api/reviews/weekly-draft", {
+        reviewDate: new Date().toISOString(),
+        taskWindowDays: 7,
+      }),
+    );
+    expect(draftResponse.status).toBe(200);
+    const draft = (await draftResponse.json()) as {
+      wins: string[];
+      stuck: string[];
+      topThreeNextWeek: string[];
+      runwayCommentary: string;
+    };
+    expect(draft.topThreeNextWeek.length).toBe(3);
+    expect(draft.runwayCommentary.length).toBeGreaterThan(0);
+
+    const createResponse = await createReview(
+      jsonRequest("http://localhost/api/reviews", {
+        reviewDate: new Date().toISOString(),
+        wins: draft.wins,
+        stuck: draft.stuck,
+        topThreeNextWeek: draft.topThreeNextWeek,
+        runwayCommentary: draft.runwayCommentary,
+      }),
+    );
+    expect(createResponse.status).toBe(201);
+    const created = (await createResponse.json()) as { id: string; topThreeNextWeek: string[] };
+    expect(created.id).toContain("review_");
+    expect(created.topThreeNextWeek.length).toBeGreaterThan(0);
+
+    const listResponse = await getReviews(new Request("http://localhost/api/reviews?limit=5"));
+    expect(listResponse.status).toBe(200);
+    const list = (await listResponse.json()) as Array<{ id: string }>;
+    expect(list.some((item) => item.id === created.id)).toBe(true);
+  });
+
+  it("returns upcoming expense reminders payload", async () => {
+    const response = await getExpenseReminders(new Request("http://localhost/api/upcoming-expenses/reminders?days=14"));
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      overdueCount: number;
+      dueSoonCount: number;
+      reminders: Array<{ severity: string }>;
+    };
+    expect(payload.overdueCount).toBeGreaterThanOrEqual(0);
+    expect(payload.dueSoonCount).toBeGreaterThanOrEqual(0);
+    expect(payload.reminders.length).toBeGreaterThan(0);
   });
 
   it("generates strict weekly summary", async () => {

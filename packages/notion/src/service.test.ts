@@ -191,6 +191,39 @@ describe("LosService mock mode", () => {
     expect(entries[0]?.title).toBe("New journal test");
   });
 
+  it("generates weekly review draft with outcomes and commentary", async () => {
+    const draft = await service.generateWeeklyReviewDraft({
+      reviewDate: new Date().toISOString(),
+      taskWindowDays: 7,
+    });
+
+    expect(draft.topThreeNextWeek.length).toBe(3);
+    expect(draft.wins.length).toBeGreaterThan(0);
+    expect(draft.runwayCommentary.length).toBeGreaterThan(0);
+  });
+
+  it("creates and lists review notes", async () => {
+    const created = await service.createReviewNote({
+      reviewDate: new Date().toISOString(),
+      wins: ["Closed LOS module"],
+      stuck: ["Need to review expense workflow"],
+      topThreeNextWeek: ["Finish QA", "Clean backlog", "Review runway risks"],
+      runwayCommentary: "Runway stable for now.",
+    });
+
+    expect(created.id).toContain("review_");
+    expect(created.topThreeNextWeek.length).toBe(3);
+
+    const reviews = await service.listReviews(5);
+    expect(reviews.some((item) => item.id === created.id)).toBe(true);
+  });
+
+  it("returns upcoming expense reminders with severity", async () => {
+    const reminders = await service.getUpcomingExpenseReminders(14);
+    expect(reminders.reminders.length).toBeGreaterThan(0);
+    expect(["OVERDUE", "DUE_SOON", "UPCOMING"]).toContain(reminders.reminders[0]?.severity);
+  });
+
   it("returns read-only assistant answer with strict redaction", async () => {
     const response = await service.queryAssistant({
       question: "What is my biggest bottleneck this week?",
