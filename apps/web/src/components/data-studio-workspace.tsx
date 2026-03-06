@@ -18,8 +18,9 @@ import type {
 } from "@los/types";
 import { Button } from "@/components/ui/button";
 
-type SaveState = "idle" | "saving" | "saved" | "error";
 type HealthViewMode = "TODAY_YESTERDAY" | "SELECTED_DAY";
+type DateViewMode = "ALL" | "SELECTED_DAY";
+type StudioSection = "PROJECTS" | "FINANCE" | "LEARNING" | "ACCOUNTS" | "HEALTH" | "FAMILY" | "TRANSITION";
 
 interface DataStudioWorkspaceProps {
   entities: Entity[];
@@ -52,13 +53,15 @@ const FAMILY_IMPORTANCE: Array<FamilyEvent["importance"]> = ["LOW", "MEDIUM", "H
 const RELATION_TYPES: Array<RelationshipCheckin["relationType"]> = ["FAMILY", "FRIEND", "MENTOR", "PARTNER"];
 const TIMEOFF_STATUSES: Array<TimeOffPlan["status"]> = ["PRE_SABBATICAL", "READY", "ACTIVE_TIME_OFF", "COMPLETED"];
 const TIMEOFF_PRIORITIES: Array<TimeOffPlan["priority"]> = ["LOW", "MEDIUM", "HIGH"];
-
-function panelTone(status: SaveState): string {
-  if (status === "saved") return "text-emerald-200";
-  if (status === "error") return "text-rose-200";
-  if (status === "saving") return "text-amber-200";
-  return "text-white/60";
-}
+const STUDIO_SECTIONS: Array<{ key: StudioSection; label: string }> = [
+  { key: "PROJECTS", label: "Projects" },
+  { key: "FINANCE", label: "Finance" },
+  { key: "LEARNING", label: "Learning" },
+  { key: "ACCOUNTS", label: "Accounts" },
+  { key: "HEALTH", label: "Health" },
+  { key: "FAMILY", label: "Family" },
+  { key: "TRANSITION", label: "Transition" },
+];
 
 function toDateInput(value?: string): string {
   if (!value) return "";
@@ -101,10 +104,22 @@ export function DataStudioWorkspace({
   const [familyEvents, setFamilyEvents] = useState<FamilyEvent[]>(initialFamilyEvents);
   const [relationshipCheckins, setRelationshipCheckins] = useState<RelationshipCheckin[]>(initialRelationshipCheckins);
   const [timeOffPlans, setTimeOffPlans] = useState<TimeOffPlan[]>(initialTimeOffPlans);
-  const [status, setStatus] = useState<SaveState>("idle");
   const [toast, setToast] = useState<{ message: string; tone: "success" | "error" } | null>(null);
+  const [activeSection, setActiveSection] = useState<StudioSection>("HEALTH");
   const [healthViewMode, setHealthViewMode] = useState<HealthViewMode>("TODAY_YESTERDAY");
   const [healthFocusDate, setHealthFocusDate] = useState(() => localDateKey(0));
+  const [projectsViewMode, setProjectsViewMode] = useState<DateViewMode>("ALL");
+  const [projectsFocusDate, setProjectsFocusDate] = useState(() => localDateKey(0));
+  const [financeViewMode, setFinanceViewMode] = useState<DateViewMode>("ALL");
+  const [financeFocusDate, setFinanceFocusDate] = useState(() => localDateKey(0));
+  const [learningViewMode, setLearningViewMode] = useState<DateViewMode>("ALL");
+  const [learningFocusDate, setLearningFocusDate] = useState(() => localDateKey(0));
+  const [accountsViewMode, setAccountsViewMode] = useState<DateViewMode>("ALL");
+  const [accountsFocusDate, setAccountsFocusDate] = useState(() => localDateKey(0));
+  const [familyViewMode, setFamilyViewMode] = useState<DateViewMode>("ALL");
+  const [familyFocusDate, setFamilyFocusDate] = useState(() => localDateKey(0));
+  const [transitionViewMode, setTransitionViewMode] = useState<DateViewMode>("ALL");
+  const [transitionFocusDate, setTransitionFocusDate] = useState(() => localDateKey(0));
 
   const entityOptions = useMemo(() => entities.map((entity) => ({ id: entity.id, name: entity.name })), [entities]);
   const todayDate = useMemo(() => localDateKey(0), []);
@@ -127,6 +142,69 @@ export function DataStudioWorkspace({
         .filter((item) => healthDateFilter.includes(toDateInput(item.date)))
         .sort((a, b) => b.date.localeCompare(a.date)),
     [healthDateFilter, workouts],
+  );
+  const visibleProjects = useMemo(
+    () =>
+      projectsViewMode === "SELECTED_DAY"
+        ? projects.filter((item) => toDateInput(item.deadline) === projectsFocusDate)
+        : projects,
+    [projects, projectsFocusDate, projectsViewMode],
+  );
+  const visibleMetrics = useMemo(
+    () =>
+      financeViewMode === "SELECTED_DAY"
+        ? metrics.filter((item) => toDateInput(item.date) === financeFocusDate)
+        : metrics.slice(0, 10),
+    [financeFocusDate, financeViewMode, metrics],
+  );
+  const visibleTransactions = useMemo(
+    () =>
+      financeViewMode === "SELECTED_DAY"
+        ? transactions.filter((item) => toDateInput(item.date) === financeFocusDate)
+        : transactions.slice(0, 12),
+    [financeFocusDate, financeViewMode, transactions],
+  );
+  const visibleUpcomingExpenses = useMemo(
+    () =>
+      financeViewMode === "SELECTED_DAY"
+        ? upcomingExpenses.filter((item) => toDateInput(item.dueDate) === financeFocusDate)
+        : upcomingExpenses.slice(0, 12),
+    [financeFocusDate, financeViewMode, upcomingExpenses],
+  );
+  const visibleCourses = useMemo(
+    () =>
+      learningViewMode === "SELECTED_DAY"
+        ? courses.filter((item) => toDateInput(item.targetDate) === learningFocusDate)
+        : courses.slice(0, 12),
+    [courses, learningFocusDate, learningViewMode],
+  );
+  const visibleAccounts = useMemo(
+    () =>
+      accountsViewMode === "SELECTED_DAY"
+        ? accounts.filter((item) => toDateInput(item.lastRotated) === accountsFocusDate)
+        : accounts.slice(0, 12),
+    [accounts, accountsFocusDate, accountsViewMode],
+  );
+  const visibleFamilyEvents = useMemo(
+    () =>
+      familyViewMode === "SELECTED_DAY"
+        ? familyEvents.filter((item) => toDateInput(item.date) === familyFocusDate)
+        : familyEvents.slice(0, 10),
+    [familyEvents, familyFocusDate, familyViewMode],
+  );
+  const visibleRelationshipCheckins = useMemo(
+    () =>
+      familyViewMode === "SELECTED_DAY"
+        ? relationshipCheckins.filter((item) => toDateInput(item.lastMeaningfulContact) === familyFocusDate)
+        : relationshipCheckins.slice(0, 10),
+    [familyFocusDate, familyViewMode, relationshipCheckins],
+  );
+  const visibleTimeOffPlans = useMemo(
+    () =>
+      transitionViewMode === "SELECTED_DAY"
+        ? timeOffPlans.filter((item) => toDateInput(item.targetDate) === transitionFocusDate)
+        : timeOffPlans.slice(0, 12),
+    [timeOffPlans, transitionFocusDate, transitionViewMode],
   );
 
   const [newProject, setNewProject] = useState({
@@ -242,7 +320,6 @@ export function DataStudioWorkspace({
   }, [toast]);
 
   async function savePatch<T>(url: string, body: unknown): Promise<T | null> {
-    setStatus("saving");
     const response = await fetch(url, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -250,7 +327,6 @@ export function DataStudioWorkspace({
     });
 
     if (!response.ok) {
-      setStatus("error");
       let message = "Save failed";
       try {
         const payload = (await response.json()) as { error?: string };
@@ -265,14 +341,11 @@ export function DataStudioWorkspace({
     }
 
     const payload = (await response.json()) as T;
-    setStatus("saved");
     setToast({ message: "Saved to Notion", tone: "success" });
-    window.setTimeout(() => setStatus("idle"), 1000);
     return payload;
   }
 
   async function saveCreate<T>(url: string, body: unknown): Promise<T | null> {
-    setStatus("saving");
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -280,7 +353,6 @@ export function DataStudioWorkspace({
     });
 
     if (!response.ok) {
-      setStatus("error");
       let message = "Save failed";
       try {
         const payload = (await response.json()) as { error?: string };
@@ -295,9 +367,7 @@ export function DataStudioWorkspace({
     }
 
     const payload = (await response.json()) as T;
-    setStatus("saved");
     setToast({ message: "Saved to Notion", tone: "success" });
-    window.setTimeout(() => setStatus("idle"), 1000);
     return payload;
   }
 
@@ -315,15 +385,40 @@ export function DataStudioWorkspace({
         </div>
       ) : null}
 
-      <p className={`text-sm ${panelTone(status)}`}>
-        {status === "saving" && "Saving to LOS + Notion..."}
-        {status === "saved" && "Saved"}
-        {status === "error" && "Save failed"}
-        {status === "idle" && "All core edits can be done here and sync to Notion."}
-      </p>
+      <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-white/5 p-3">
+        {STUDIO_SECTIONS.map((section) => (
+          <Button
+            key={section.key}
+            variant={activeSection === section.key ? "solid" : "ghost"}
+            className="h-8 rounded-full px-3 text-xs"
+            onClick={() => setActiveSection(section.key)}
+          >
+            {section.label}
+          </Button>
+        ))}
+      </div>
 
+      {activeSection === "PROJECTS" ? (
       <section className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
         <h2 className="text-base font-semibold text-white">Projects</h2>
+
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-slate-950/25 p-3">
+          <Button variant={projectsViewMode === "ALL" ? "solid" : "ghost"} className="h-8 rounded-full px-3 text-xs" onClick={() => setProjectsViewMode("ALL")}>
+            All dates
+          </Button>
+          <Button variant={projectsViewMode === "SELECTED_DAY" ? "solid" : "ghost"} className="h-8 rounded-full px-3 text-xs" onClick={() => setProjectsViewMode("SELECTED_DAY")}>
+            Select day
+          </Button>
+          {projectsViewMode === "SELECTED_DAY" ? (
+            <input
+              type="date"
+              className="h-8 rounded-lg border border-white/20 bg-slate-950/60 px-2 text-sm text-white"
+              value={projectsFocusDate}
+              onChange={(event) => setProjectsFocusDate((event.target as HTMLInputElement).value || todayDate)}
+            />
+          ) : null}
+          <span className="text-xs text-white/65">{visibleProjects.length} project{visibleProjects.length === 1 ? "" : "s"}</span>
+        </div>
 
         <div className="grid gap-2 md:grid-cols-6">
           <input
@@ -385,7 +480,8 @@ export function DataStudioWorkspace({
         </div>
 
         <div className="space-y-2">
-          {projects.map((project) => (
+          {visibleProjects.length > 0 ? (
+            visibleProjects.map((project) => (
             <article key={project.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-6">
               <input
                 className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white"
@@ -462,12 +558,39 @@ export function DataStudioWorkspace({
                 Save
               </Button>
             </article>
-          ))}
+            ))
+          ) : (
+            <div className="rounded-xl border border-dashed border-white/20 bg-slate-950/20 p-3 text-sm text-white/65">
+              No projects for the selected date filter.
+            </div>
+          )}
         </div>
       </section>
+      ) : null}
 
+      {activeSection === "FINANCE" ? (
       <section className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-        <h2 className="text-base font-semibold text-white">Finance (Metrics, Transactions, Upcoming)</h2>
+        <h2 className="text-base font-semibold text-white">Finance</h2>
+
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-slate-950/25 p-3">
+          <Button variant={financeViewMode === "ALL" ? "solid" : "ghost"} className="h-8 rounded-full px-3 text-xs" onClick={() => setFinanceViewMode("ALL")}>
+            All dates
+          </Button>
+          <Button variant={financeViewMode === "SELECTED_DAY" ? "solid" : "ghost"} className="h-8 rounded-full px-3 text-xs" onClick={() => setFinanceViewMode("SELECTED_DAY")}>
+            Select day
+          </Button>
+          {financeViewMode === "SELECTED_DAY" ? (
+            <input
+              type="date"
+              className="h-8 rounded-lg border border-white/20 bg-slate-950/60 px-2 text-sm text-white"
+              value={financeFocusDate}
+              onChange={(event) => setFinanceFocusDate((event.target as HTMLInputElement).value || todayDate)}
+            />
+          ) : null}
+          <span className="text-xs text-white/65">
+            {visibleMetrics.length} metrics • {visibleTransactions.length} transactions • {visibleUpcomingExpenses.length} upcoming
+          </span>
+        </div>
 
         <div className="grid gap-2 md:grid-cols-6">
           <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Metric name" value={newMetric.metricName} onChange={(event) => setNewMetric((current) => ({ ...current, metricName: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
@@ -496,7 +619,7 @@ export function DataStudioWorkspace({
         </div>
 
         <div className="space-y-2">
-          {metrics.slice(0, 10).map((metric) => (
+          {visibleMetrics.map((metric) => (
             <article key={metric.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-6">
               <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={metric.metricName} onChange={(event) => setMetrics((current) => current.map((item) => item.id === metric.id ? { ...item, metricName: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
               <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={metric.category} onChange={(event) => setMetrics((current) => current.map((item) => item.id === metric.id ? { ...item, category: (event.target as HTMLInputElement | HTMLSelectElement).value as MetricPoint["category"] } : item))}>
@@ -545,7 +668,7 @@ export function DataStudioWorkspace({
         </div>
 
         <div className="space-y-2">
-          {transactions.slice(0, 12).map((transaction) => (
+          {visibleTransactions.map((transaction) => (
             <article key={transaction.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-6">
               <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(transaction.date)} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, date: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
               <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(transaction.amount)} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, amount: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
@@ -589,7 +712,7 @@ export function DataStudioWorkspace({
         </div>
 
         <div className="space-y-2">
-          {upcomingExpenses.slice(0, 10).map((expense) => (
+          {visibleUpcomingExpenses.map((expense) => (
             <article key={expense.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-7">
               <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={expense.bill} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, bill: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
               <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(expense.amount)} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, amount: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
@@ -609,9 +732,29 @@ export function DataStudioWorkspace({
           ))}
         </div>
       </section>
+      ) : null}
 
+      {activeSection === "LEARNING" ? (
       <section className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-        <h2 className="text-base font-semibold text-white">Learning (Pathways + Courses)</h2>
+        <h2 className="text-base font-semibold text-white">Learning</h2>
+
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-slate-950/25 p-3">
+          <Button variant={learningViewMode === "ALL" ? "solid" : "ghost"} className="h-8 rounded-full px-3 text-xs" onClick={() => setLearningViewMode("ALL")}>
+            All dates
+          </Button>
+          <Button variant={learningViewMode === "SELECTED_DAY" ? "solid" : "ghost"} className="h-8 rounded-full px-3 text-xs" onClick={() => setLearningViewMode("SELECTED_DAY")}>
+            Select day
+          </Button>
+          {learningViewMode === "SELECTED_DAY" ? (
+            <input
+              type="date"
+              className="h-8 rounded-lg border border-white/20 bg-slate-950/60 px-2 text-sm text-white"
+              value={learningFocusDate}
+              onChange={(event) => setLearningFocusDate((event.target as HTMLInputElement).value || todayDate)}
+            />
+          ) : null}
+          <span className="text-xs text-white/65">{pathways.length} pathways • {visibleCourses.length} courses</span>
+        </div>
 
         <div className="grid gap-2 md:grid-cols-4">
           <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Pathway title" value={newPathway.title} onChange={(event) => setNewPathway((current) => ({ ...current, title: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
@@ -668,7 +811,7 @@ export function DataStudioWorkspace({
         </div>
 
         <div className="space-y-2">
-          {courses.slice(0, 12).map((course) => (
+          {visibleCourses.map((course) => (
             <article key={course.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-7">
               <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={course.title} onChange={(event) => setCourses((current) => current.map((item) => item.id === course.id ? { ...item, title: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
               <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={course.pathwayId} onChange={(event) => setCourses((current) => current.map((item) => item.id === course.id ? { ...item, pathwayId: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))}>{pathways.map((pathway) => <option key={pathway.id} value={pathway.id}>{pathway.title}</option>)}</select>
@@ -693,9 +836,29 @@ export function DataStudioWorkspace({
           ))}
         </div>
       </section>
+      ) : null}
 
+      {activeSection === "ACCOUNTS" ? (
       <section className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
         <h2 className="text-base font-semibold text-white">Accounts</h2>
+
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-slate-950/25 p-3">
+          <Button variant={accountsViewMode === "ALL" ? "solid" : "ghost"} className="h-8 rounded-full px-3 text-xs" onClick={() => setAccountsViewMode("ALL")}>
+            All dates
+          </Button>
+          <Button variant={accountsViewMode === "SELECTED_DAY" ? "solid" : "ghost"} className="h-8 rounded-full px-3 text-xs" onClick={() => setAccountsViewMode("SELECTED_DAY")}>
+            Select day
+          </Button>
+          {accountsViewMode === "SELECTED_DAY" ? (
+            <input
+              type="date"
+              className="h-8 rounded-lg border border-white/20 bg-slate-950/60 px-2 text-sm text-white"
+              value={accountsFocusDate}
+              onChange={(event) => setAccountsFocusDate((event.target as HTMLInputElement).value || todayDate)}
+            />
+          ) : null}
+          <span className="text-xs text-white/65">{visibleAccounts.length} account{visibleAccounts.length === 1 ? "" : "s"}</span>
+        </div>
 
         <div className="grid gap-2 md:grid-cols-9">
           <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Service" value={newAccount.service} onChange={(event) => setNewAccount((current) => ({ ...current, service: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
@@ -722,7 +885,7 @@ export function DataStudioWorkspace({
         </div>
 
         <div className="space-y-2">
-          {accounts.slice(0, 12).map((account) => (
+          {visibleAccounts.map((account) => (
             <article key={account.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-8">
               <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={account.service} onChange={(event) => setAccounts((current) => current.map((item) => item.id === account.id ? { ...item, service: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
               <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={account.entityId} onChange={(event) => setAccounts((current) => current.map((item) => item.id === account.id ? { ...item, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
@@ -748,10 +911,12 @@ export function DataStudioWorkspace({
           ))}
         </div>
       </section>
+      ) : null}
 
+      {activeSection === "HEALTH" ? (
       <section className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-base font-semibold text-white">Health (Daily Logs + Workouts)</h2>
+          <h2 className="text-base font-semibold text-white">Health</h2>
           <p className="text-xs text-white/65">
             {visibleHealthLogs.length} logs • {visibleWorkouts.length} workouts
           </p>
@@ -886,9 +1051,31 @@ export function DataStudioWorkspace({
           )}
         </div>
       </section>
+      ) : null}
 
+      {activeSection === "FAMILY" ? (
       <section className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-        <h2 className="text-base font-semibold text-white">Family (Events + Check-ins)</h2>
+        <h2 className="text-base font-semibold text-white">Family</h2>
+
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-slate-950/25 p-3">
+          <Button variant={familyViewMode === "ALL" ? "solid" : "ghost"} className="h-8 rounded-full px-3 text-xs" onClick={() => setFamilyViewMode("ALL")}>
+            All dates
+          </Button>
+          <Button variant={familyViewMode === "SELECTED_DAY" ? "solid" : "ghost"} className="h-8 rounded-full px-3 text-xs" onClick={() => setFamilyViewMode("SELECTED_DAY")}>
+            Select day
+          </Button>
+          {familyViewMode === "SELECTED_DAY" ? (
+            <input
+              type="date"
+              className="h-8 rounded-lg border border-white/20 bg-slate-950/60 px-2 text-sm text-white"
+              value={familyFocusDate}
+              onChange={(event) => setFamilyFocusDate((event.target as HTMLInputElement).value || todayDate)}
+            />
+          ) : null}
+          <span className="text-xs text-white/65">
+            {visibleFamilyEvents.length} events • {visibleRelationshipCheckins.length} check-ins
+          </span>
+        </div>
 
         <div className="grid gap-2 md:grid-cols-7">
           <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Event title" value={newFamilyEvent.title} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, title: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
@@ -913,7 +1100,7 @@ export function DataStudioWorkspace({
         </div>
 
         <div className="space-y-2">
-          {familyEvents.slice(0, 10).map((eventRow) => (
+          {visibleFamilyEvents.map((eventRow) => (
             <article key={eventRow.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-7">
               <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={eventRow.title} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, title: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
               <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(eventRow.date)} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, date: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
@@ -953,7 +1140,7 @@ export function DataStudioWorkspace({
         </div>
 
         <div className="space-y-2">
-          {relationshipCheckins.slice(0, 10).map((checkin) => (
+          {visibleRelationshipCheckins.map((checkin) => (
             <article key={checkin.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-7">
               <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={checkin.person} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, person: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
               <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={checkin.relationType} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, relationType: (event.target as HTMLInputElement | HTMLSelectElement).value as RelationshipCheckin["relationType"] } : item))}>{RELATION_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
@@ -970,9 +1157,29 @@ export function DataStudioWorkspace({
           ))}
         </div>
       </section>
+      ) : null}
 
+      {activeSection === "TRANSITION" ? (
       <section className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-        <h2 className="text-base font-semibold text-white">Transition (Time-Off Plans)</h2>
+        <h2 className="text-base font-semibold text-white">Transition</h2>
+
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-slate-950/25 p-3">
+          <Button variant={transitionViewMode === "ALL" ? "solid" : "ghost"} className="h-8 rounded-full px-3 text-xs" onClick={() => setTransitionViewMode("ALL")}>
+            All dates
+          </Button>
+          <Button variant={transitionViewMode === "SELECTED_DAY" ? "solid" : "ghost"} className="h-8 rounded-full px-3 text-xs" onClick={() => setTransitionViewMode("SELECTED_DAY")}>
+            Select day
+          </Button>
+          {transitionViewMode === "SELECTED_DAY" ? (
+            <input
+              type="date"
+              className="h-8 rounded-lg border border-white/20 bg-slate-950/60 px-2 text-sm text-white"
+              value={transitionFocusDate}
+              onChange={(event) => setTransitionFocusDate((event.target as HTMLInputElement).value || todayDate)}
+            />
+          ) : null}
+          <span className="text-xs text-white/65">{visibleTimeOffPlans.length} plan{visibleTimeOffPlans.length === 1 ? "" : "s"}</span>
+        </div>
 
         <div className="grid gap-2 md:grid-cols-8">
           <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Plan title" value={newTimeOffPlan.title} onChange={(event) => setNewTimeOffPlan((current) => ({ ...current, title: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
@@ -1001,7 +1208,7 @@ export function DataStudioWorkspace({
         </div>
 
         <div className="space-y-2">
-          {timeOffPlans.slice(0, 12).map((plan) => (
+          {visibleTimeOffPlans.map((plan) => (
             <article key={plan.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-8">
               <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={plan.title} onChange={(event) => setTimeOffPlans((current) => current.map((item) => item.id === plan.id ? { ...item, title: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
               <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={plan.status} onChange={(event) => setTimeOffPlans((current) => current.map((item) => item.id === plan.id ? { ...item, status: (event.target as HTMLInputElement | HTMLSelectElement).value as TimeOffPlan["status"] } : item))}>{TIMEOFF_STATUSES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
@@ -1019,6 +1226,7 @@ export function DataStudioWorkspace({
           ))}
         </div>
       </section>
+      ) : null}
     </div>
   );
 }
