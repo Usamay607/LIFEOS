@@ -68,6 +68,8 @@ describe("LosService mock mode", () => {
 
   it("derives net worth from total assets minus liabilities", async () => {
     const runway = await service.getRunway();
+    expect(runway.burnBasis).toBe("LAST_90_DAYS");
+    expect(runway.burnLabel).toBe("90d average burn");
     expect(runway.totalAssets).toBe(1_800_000);
     expect(runway.totalLiabilities).toBe(347_130);
     expect(runway.netWorth).toBe(1_452_870);
@@ -81,6 +83,25 @@ describe("LosService mock mode", () => {
     expect(dashboard.financePulse.last30Expenses).toBeGreaterThan(0);
     expect(dashboard.financePulse.dueSoonCount).toBeGreaterThan(0);
     expect(dashboard.financePulse.liabilityRatioPercent).toBeGreaterThan(0);
+    expect(dashboard.financePulse.scenarios).toHaveLength(4);
+    expect(dashboard.financePulse.weeklyTrend.length).toBeGreaterThan(0);
+    expect(dashboard.financePulse.monthlyTrend.length).toBeGreaterThan(0);
+  });
+
+  it("creates a matching transaction when an upcoming expense is marked paid", async () => {
+    const beforeCount = (await service.listTransactions()).length;
+    const expense = (await service.listUpcomingExpenses(true))[0];
+    expect(expense).toBeDefined();
+    expect(expense?.paid).toBe(false);
+
+    const updated = await service.updateUpcomingExpense(expense!.id, { paid: true });
+    const afterTransactions = await service.listTransactions();
+    const autoTransaction = afterTransactions.find((transaction) => transaction.notes?.includes(`AUTO_UPCOMING_EXPENSE:${updated.id}`));
+
+    expect(updated.paid).toBe(true);
+    expect(afterTransactions.length).toBe(beforeCount + 1);
+    expect(autoTransaction?.amount).toBe(updated.amount);
+    expect(autoTransaction?.category).toBe(updated.bill);
   });
 
   it("falls back to legacy net worth metric when balance sheet metrics are missing", async () => {

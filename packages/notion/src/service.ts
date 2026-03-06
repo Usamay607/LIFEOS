@@ -23,7 +23,6 @@ import type {
   CreateWorkoutInput,
   Entity,
   FamilyEvent,
-  FinancePulse,
   FamilyOverview,
   HealthDailyLog,
   HealthOverview,
@@ -67,7 +66,7 @@ import type {
   WorkoutSession,
   RelationshipCheckin,
 } from "@los/types";
-import { deriveFinanceMetricSnapshot } from "@los/types";
+import { deriveBurnScenarios, deriveFinanceMetricSnapshot, deriveFinancePulse } from "@los/types";
 import { loadLosEnv, type LosEnv } from "./env";
 import { memoryStore } from "./memory-store";
 import {
@@ -222,6 +221,7 @@ export class LosService {
       runway,
       allTransactions,
       allUpcomingExpenses,
+      entities,
       healthOverview,
       familyOverview,
       transitionOverview,
@@ -232,6 +232,7 @@ export class LosService {
       this.getRunway(),
       this.listTransactions(),
       this.listUpcomingExpenses(true),
+      this.listEntities(),
       this.getHealthOverview(),
       this.getFamilyOverview(),
       this.getTransitionOverview(),
@@ -262,43 +263,21 @@ export class LosService {
       topProjects,
       nextTasks,
       runway,
-      financePulse: this.buildFinancePulse(allTransactions, allUpcomingExpenses, runway),
+      financePulse: deriveFinancePulse({
+        transactions: allTransactions,
+        upcomingExpenses: allUpcomingExpenses,
+        liquidAssets: runway.liquidAssets,
+        totalAssets: runway.totalAssets,
+        totalLiabilities: runway.totalLiabilities,
+        entities,
+        timeZone: this.env.timezone,
+      }),
       healthOverview,
       familyOverview,
       transitionOverview,
       learningOverview,
       upcomingExpenses,
       pendingTransactions,
-    };
-  }
-
-  private buildFinancePulse(
-    transactions: Transaction[],
-    upcomingExpenses: UpcomingExpense[],
-    runway: RunwayResult,
-  ): FinancePulse {
-    const windowStart = Date.now() - 30 * DAY_MS;
-
-    const last30Transactions = transactions.filter((transaction) => new Date(transaction.date).getTime() >= windowStart);
-    const last30Income = round2(
-      sum(last30Transactions.filter((transaction) => transaction.type === "INCOME").map((transaction) => transaction.amount)),
-    );
-    const last30Expenses = round2(
-      sum(last30Transactions.filter((transaction) => transaction.type === "EXPENSE").map((transaction) => transaction.amount)),
-    );
-    const last30NetCashflow = round2(last30Income - last30Expenses);
-
-    const dueSoon = upcomingExpenses.filter((expense) => !expense.paid && daysUntilDate(expense.dueDate) <= 14);
-
-    return {
-      last30Income,
-      last30Expenses,
-      last30NetCashflow,
-      savingsRatePercent: last30Income > 0 ? round2(Math.max(0, (last30NetCashflow / last30Income) * 100)) : 0,
-      dueSoonTotal: round2(sum(dueSoon.map((expense) => expense.amount))),
-      dueSoonCount: dueSoon.length,
-      liabilityRatioPercent:
-        runway.totalAssets > 0 ? round2((runway.totalLiabilities / runway.totalAssets) * 100) : 0,
     };
   }
 
@@ -1192,20 +1171,17 @@ export class LosService {
     const [metrics, transactions] = await Promise.all([this.listMetrics(), this.listTransactions()]);
     const financeSnapshot = deriveFinanceMetricSnapshot(metrics);
     const { totalAssets, totalLiabilities, liquidAssets, netWorth } = financeSnapshot;
-
-    const now = Date.now();
-    const ninetyDaysAgo = now - DAY_MS * 90;
-
-    const expenseTransactions = transactions.filter(
-      (transaction) => transaction.type === "EXPENSE" && new Date(transaction.date).getTime() >= ninetyDaysAgo,
-    );
-
-    const expenseTotal = sum(expenseTransactions.map((transaction) => transaction.amount));
-    const observedMonths = Math.max(1, round2((now - ninetyDaysAgo) / DAY_MS / 30));
-    const monthlyBurn = expenseTotal > 0 ? round2(expenseTotal / observedMonths) : 0;
+    const defaultScenario = deriveBurnScenarios({
+      transactions,
+      liquidAssets,
+      timeZone: this.env.timezone,
+    }).find((scenario) => scenario.basis === "LAST_90_DAYS");
+    const monthlyBurn = defaultScenario?.monthlyEquivalent ?? 0;
     const monthsOfFreedom = monthlyBurn > 0 ? round2(liquidAssets / monthlyBurn) : 0;
 
     return {
+      burnBasis: "LAST_90_DAYS",
+      burnLabel: "90d average burn",
       netWorth: round2(netWorth),
       totalAssets: round2(totalAssets),
       totalLiabilities: round2(totalLiabilities),
@@ -2217,9 +2193,11 @@ export class LosService {
         dueDate: input.dueDate !== undefined ? toIso(input.dueDate) ?? existing.dueDate : existing.dueDate,
       };
       snapshot.upcomingExpenses[index] = updated;
+      await this.syncPaidUpcomingExpenseToTransaction(existing, updated);
       return updated;
     }
 
+    const existing = await this.getUpcomingExpenseById(id);
     const properties: Record<string, unknown> = {};
     if (input.bill !== undefined) properties.bill = titleProperty(input.bill.trim() || "Expense");
     if (input.amount !== undefined) properties.amount = { number: Number(input.amount) };
@@ -2229,7 +2207,39 @@ export class LosService {
     if (input.paid !== undefined) properties.paid = { checkbox: input.paid };
 
     const page = (await (this.notion as any).pages.update({ page_id: id, properties })) as any;
-    return mapNotionPageToUpcomingExpense(page);
+    const updated = mapNotionPageToUpcomingExpense(page);
+    await this.syncPaidUpcomingExpenseToTransaction(existing, updated);
+    return updated;
+  }
+
+  private async getUpcomingExpenseById(id: string): Promise<UpcomingExpense> {
+    const expenses = await this.listUpcomingExpenses(true);
+    const existing = expenses.find((expense) => expense.id === id);
+    if (!existing) {
+      throw new Error(`Upcoming expense not found: ${id}`);
+    }
+    return existing;
+  }
+
+  private async syncPaidUpcomingExpenseToTransaction(previous: UpcomingExpense, current: UpcomingExpense): Promise<void> {
+    if (previous.paid || !current.paid) {
+      return;
+    }
+
+    const marker = `AUTO_UPCOMING_EXPENSE:${current.id}`;
+    const existingTransactions = await this.listTransactions();
+    if (existingTransactions.some((transaction) => transaction.notes?.includes(marker))) {
+      return;
+    }
+
+    await this.createTransaction({
+      date: new Date().toISOString().slice(0, 10),
+      amount: current.amount,
+      type: "EXPENSE",
+      entityId: current.entityId,
+      category: current.bill,
+      notes: marker,
+    });
   }
 
   private async getSnapshot(): Promise<LosDataSnapshot> {

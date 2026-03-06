@@ -134,6 +134,33 @@ export interface FinanceMetricSnapshot {
   netWorth: number;
 }
 
+export type BurnBasis = "LAST_7_DAYS" | "LAST_30_DAYS" | "LAST_90_DAYS" | "CURRENT_MONTH";
+
+export interface BurnScenario {
+  basis: BurnBasis;
+  label: string;
+  periodLabel: string;
+  totalExpenses: number;
+  monthlyEquivalent: number;
+  runwayMonths: number;
+}
+
+export interface FinanceTrendPoint {
+  label: string;
+  income: number;
+  expenses: number;
+  net: number;
+  startDate: string;
+  endDate: string;
+}
+
+export interface FinanceBreakdownItem {
+  label: string;
+  total: number;
+  sharePercent: number;
+  entityId?: Id;
+}
+
 const FINANCE_METRIC_ALIASES: Record<FinanceMetricKey, string[]> = {
   totalAssets: ["total assets", "assets"],
   totalLiabilities: ["total liabilities", "liabilities"],
@@ -185,6 +212,292 @@ export function deriveFinanceMetricSnapshot(metrics: MetricPoint[]): FinanceMetr
     totalLiabilities: roundFinanceValue(totalLiabilities),
     liquidAssets: roundFinanceValue(liquidAssets),
     netWorth: roundFinanceValue(netWorth),
+  };
+}
+
+function sumMoney(values: number[]): number {
+  return values.reduce((total, value) => total + value, 0);
+}
+
+function parseTimestamp(value: string): number {
+  return new Date(value).getTime();
+}
+
+function getDatePartsInTimeZone(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const year = Number(parts.find((part) => part.type === "year")?.value ?? "0");
+  const month = Number(parts.find((part) => part.type === "month")?.value ?? "0");
+  const day = Number(parts.find((part) => part.type === "day")?.value ?? "0");
+
+  return { year, month, day };
+}
+
+function getMonthKey(date: Date, timeZone: string): string {
+  const parts = getDatePartsInTimeZone(date, timeZone);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}`;
+}
+
+function shiftMonthKey(key: string, delta: number): string {
+  const [yearRaw, monthRaw] = key.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const shifted = new Date(Date.UTC(year, month - 1 + delta, 1));
+
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatMonthLabel(key: string, timeZone: string): string {
+  const [yearRaw, monthRaw] = key.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  return new Intl.DateTimeFormat("en-AU", {
+    timeZone,
+    month: "short",
+    year: "numeric",
+  }).format(new Date(Date.UTC(year, month - 1, 1)));
+}
+
+function formatShortDate(dateMs: number, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-AU", {
+    timeZone,
+    day: "numeric",
+    month: "short",
+  }).format(new Date(dateMs));
+}
+
+function buildBurnScenario(
+  basis: BurnBasis,
+  label: string,
+  periodLabel: string,
+  totalExpenses: number,
+  monthlyEquivalent: number,
+  liquidAssets: number,
+): BurnScenario {
+  const normalizedMonthlyEquivalent = roundFinanceValue(monthlyEquivalent);
+  return {
+    basis,
+    label,
+    periodLabel,
+    totalExpenses: roundFinanceValue(totalExpenses),
+    monthlyEquivalent: normalizedMonthlyEquivalent,
+    runwayMonths:
+      normalizedMonthlyEquivalent > 0 ? roundFinanceValue(liquidAssets / normalizedMonthlyEquivalent) : 0,
+  };
+}
+
+export function deriveBurnScenarios({
+  transactions,
+  liquidAssets,
+  now = Date.now(),
+  timeZone = "Australia/Melbourne",
+}: {
+  transactions: Transaction[];
+  liquidAssets: number;
+  now?: number;
+  timeZone?: string;
+}): BurnScenario[] {
+  const expenseTransactions = transactions.filter((transaction) => transaction.type === "EXPENSE");
+  const currentMonthKey = getMonthKey(new Date(now), timeZone);
+  const nowParts = getDatePartsInTimeZone(new Date(now), timeZone);
+  const daysInCurrentMonth = new Date(Date.UTC(nowParts.year, nowParts.month, 0)).getUTCDate();
+  const currentMonthExpenses = sumMoney(
+    expenseTransactions
+      .filter((transaction) => getMonthKey(new Date(transaction.date), timeZone) === currentMonthKey)
+      .map((transaction) => transaction.amount),
+  );
+
+  const lastNDayExpenses = (days: number) =>
+    sumMoney(
+      expenseTransactions
+        .filter((transaction) => parseTimestamp(transaction.date) >= now - days * 86_400_000)
+        .map((transaction) => transaction.amount),
+    );
+
+  const last7Expenses = lastNDayExpenses(7);
+  const last30Expenses = lastNDayExpenses(30);
+  const last90Expenses = lastNDayExpenses(90);
+  const currentMonthProjected =
+    nowParts.day > 0 ? (currentMonthExpenses / nowParts.day) * daysInCurrentMonth : currentMonthExpenses;
+
+  return [
+    buildBurnScenario("LAST_7_DAYS", "7d spend", "Last 7 days", last7Expenses, (last7Expenses / 7) * 30, liquidAssets),
+    buildBurnScenario("LAST_30_DAYS", "30d spend", "Last 30 days", last30Expenses, last30Expenses, liquidAssets),
+    buildBurnScenario("LAST_90_DAYS", "90d avg burn", "Last 90 days", last90Expenses, last90Expenses / 3, liquidAssets),
+    buildBurnScenario(
+      "CURRENT_MONTH",
+      "Month projection",
+      `${nowParts.day}/${daysInCurrentMonth} days this month`,
+      currentMonthExpenses,
+      currentMonthProjected,
+      liquidAssets,
+    ),
+  ];
+}
+
+export function deriveFinancePulse({
+  transactions,
+  upcomingExpenses,
+  liquidAssets,
+  totalAssets,
+  totalLiabilities,
+  entities = [],
+  now = Date.now(),
+  timeZone = "Australia/Melbourne",
+}: {
+  transactions: Transaction[];
+  upcomingExpenses: UpcomingExpense[];
+  liquidAssets: number;
+  totalAssets: number;
+  totalLiabilities: number;
+  entities?: Entity[];
+  now?: number;
+  timeZone?: string;
+}): FinancePulse {
+  const last30Start = now - 30 * 86_400_000;
+  const last90Start = now - 90 * 86_400_000;
+  const last30Transactions = transactions.filter((transaction) => parseTimestamp(transaction.date) >= last30Start);
+  const last90Expenses = transactions.filter(
+    (transaction) => transaction.type === "EXPENSE" && parseTimestamp(transaction.date) >= last90Start,
+  );
+  const scenarios = deriveBurnScenarios({ transactions, liquidAssets, now, timeZone });
+  const currentMonthKey = getMonthKey(new Date(now), timeZone);
+  const previousMonthKey = shiftMonthKey(currentMonthKey, -1);
+
+  const entityMap = new Map(entities.map((entity) => [entity.id, entity.name]));
+  const currentMonthExpenses = sumMoney(
+    transactions
+      .filter(
+        (transaction) =>
+          transaction.type === "EXPENSE" && getMonthKey(new Date(transaction.date), timeZone) === currentMonthKey,
+      )
+      .map((transaction) => transaction.amount),
+  );
+  const previousMonthExpenses = sumMoney(
+    transactions
+      .filter(
+        (transaction) =>
+          transaction.type === "EXPENSE" && getMonthKey(new Date(transaction.date), timeZone) === previousMonthKey,
+      )
+      .map((transaction) => transaction.amount),
+  );
+
+  const weeklyTrend = Array.from({ length: 8 }, (_, index) => {
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+    const bucketEnd = startOfToday.getTime() + 86_400_000 - (8 - index - 1) * 7 * 86_400_000;
+    const bucketStart = bucketEnd - 7 * 86_400_000;
+    const bucketTransactions = transactions.filter((transaction) => {
+      const timestamp = parseTimestamp(transaction.date);
+      return timestamp >= bucketStart && timestamp < bucketEnd;
+    });
+    const income = sumMoney(
+      bucketTransactions.filter((transaction) => transaction.type === "INCOME").map((transaction) => transaction.amount),
+    );
+    const expenses = sumMoney(
+      bucketTransactions.filter((transaction) => transaction.type === "EXPENSE").map((transaction) => transaction.amount),
+    );
+    return {
+      label: `${formatShortDate(bucketStart, timeZone)}-${formatShortDate(bucketEnd - 86_400_000, timeZone)}`,
+      income: roundFinanceValue(income),
+      expenses: roundFinanceValue(expenses),
+      net: roundFinanceValue(income - expenses),
+      startDate: new Date(bucketStart).toISOString(),
+      endDate: new Date(bucketEnd - 1).toISOString(),
+    };
+  });
+
+  const monthlyTrend = Array.from({ length: 6 }, (_, index) => shiftMonthKey(currentMonthKey, index - 5)).map((key) => {
+    const bucketTransactions = transactions.filter(
+      (transaction) => getMonthKey(new Date(transaction.date), timeZone) === key,
+    );
+    const income = sumMoney(
+      bucketTransactions.filter((transaction) => transaction.type === "INCOME").map((transaction) => transaction.amount),
+    );
+    const expenses = sumMoney(
+      bucketTransactions.filter((transaction) => transaction.type === "EXPENSE").map((transaction) => transaction.amount),
+    );
+    const [yearRaw, monthRaw] = key.split("-");
+    const year = Number(yearRaw);
+    const month = Number(monthRaw);
+    const startDate = new Date(Date.UTC(year, month - 1, 1)).toISOString();
+    const endDate = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999)).toISOString();
+    return {
+      label: formatMonthLabel(key, timeZone),
+      income: roundFinanceValue(income),
+      expenses: roundFinanceValue(expenses),
+      net: roundFinanceValue(income - expenses),
+      startDate,
+      endDate,
+    };
+  });
+
+  const totalLast90Expenses = sumMoney(last90Expenses.map((transaction) => transaction.amount));
+  const topExpenseCategories = Array.from(
+    last90Expenses.reduce((map, transaction) => {
+      map.set(transaction.category, (map.get(transaction.category) ?? 0) + transaction.amount);
+      return map;
+    }, new Map<string, number>()),
+  )
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 5)
+    .map(([label, total]) => ({
+      label,
+      total: roundFinanceValue(total),
+      sharePercent: totalLast90Expenses > 0 ? roundFinanceValue((total / totalLast90Expenses) * 100) : 0,
+    }));
+
+  const topExpenseEntities = Array.from(
+    last90Expenses.reduce((map, transaction) => {
+      const current = map.get(transaction.entityId) ?? 0;
+      map.set(transaction.entityId, current + transaction.amount);
+      return map;
+    }, new Map<string, number>()),
+  )
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 5)
+    .map(([entityId, total]) => ({
+      entityId,
+      label: entityMap.get(entityId) ?? entityId,
+      total: roundFinanceValue(total),
+      sharePercent: totalLast90Expenses > 0 ? roundFinanceValue((total / totalLast90Expenses) * 100) : 0,
+    }));
+
+  const dueSoon = upcomingExpenses.filter((expense) => {
+    if (expense.paid) return false;
+    const dueMs = parseTimestamp(expense.dueDate);
+    return dueMs >= now - 86_400_000 && dueMs <= now + 14 * 86_400_000;
+  });
+
+  const last30Income = sumMoney(
+    last30Transactions.filter((transaction) => transaction.type === "INCOME").map((transaction) => transaction.amount),
+  );
+  const last30Expenses = sumMoney(
+    last30Transactions.filter((transaction) => transaction.type === "EXPENSE").map((transaction) => transaction.amount),
+  );
+  const last30NetCashflow = last30Income - last30Expenses;
+
+  return {
+    last30Income: roundFinanceValue(last30Income),
+    last30Expenses: roundFinanceValue(last30Expenses),
+    last30NetCashflow: roundFinanceValue(last30NetCashflow),
+    savingsRatePercent:
+      last30Income > 0 ? roundFinanceValue(Math.max(0, (last30NetCashflow / last30Income) * 100)) : 0,
+    dueSoonTotal: roundFinanceValue(sumMoney(dueSoon.map((expense) => expense.amount))),
+    dueSoonCount: dueSoon.length,
+    liabilityRatioPercent: totalAssets > 0 ? roundFinanceValue((totalLiabilities / totalAssets) * 100) : 0,
+    currentMonthExpenses: roundFinanceValue(currentMonthExpenses),
+    previousMonthExpenses: roundFinanceValue(previousMonthExpenses),
+    scenarios,
+    weeklyTrend,
+    monthlyTrend,
+    topExpenseCategories,
+    topExpenseEntities,
   };
 }
 
@@ -327,6 +640,8 @@ export interface LearningOverview {
 }
 
 export interface RunwayResult {
+  burnBasis: BurnBasis;
+  burnLabel: string;
   netWorth: number;
   totalAssets: number;
   totalLiabilities: number;
@@ -343,6 +658,13 @@ export interface FinancePulse {
   dueSoonTotal: number;
   dueSoonCount: number;
   liabilityRatioPercent: number;
+  currentMonthExpenses: number;
+  previousMonthExpenses: number;
+  scenarios: BurnScenario[];
+  weeklyTrend: FinanceTrendPoint[];
+  monthlyTrend: FinanceTrendPoint[];
+  topExpenseCategories: FinanceBreakdownItem[];
+  topExpenseEntities: FinanceBreakdownItem[];
 }
 
 export interface HomeDashboardData {

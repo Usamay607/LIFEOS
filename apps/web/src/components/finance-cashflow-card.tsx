@@ -7,29 +7,47 @@ interface FinanceCardProps {
 }
 
 export function FinanceCashflowCard({ data }: FinanceCardProps) {
+  const burnRows = data.financePulse.scenarios.map((scenario) => ({
+    label: scenario.label,
+    value: scenario.monthlyEquivalent,
+    meta: `${scenario.runwayMonths.toFixed(1)} mo`,
+    tone:
+      scenario.basis === "LAST_7_DAYS"
+        ? "bg-amber-300"
+        : scenario.basis === "CURRENT_MONTH"
+          ? "bg-cyan-300"
+          : scenario.basis === "LAST_30_DAYS"
+            ? "bg-rose-300"
+            : "bg-emerald-300",
+  }));
   const financeRows = [
     {
       label: "Income (30d)",
       value: data.financePulse.last30Income,
+      meta: "cash in",
       tone: "bg-emerald-300",
     },
     {
       label: "Expenses (30d)",
       value: data.financePulse.last30Expenses,
+      meta: "cash out",
       tone: "bg-rose-300",
     },
     {
-      label: "Net cashflow (30d)",
-      value: data.financePulse.last30NetCashflow,
-      tone: data.financePulse.last30NetCashflow >= 0 ? "bg-cyan-300" : "bg-amber-300",
-    },
-    {
-      label: "Bills due soon",
-      value: data.financePulse.dueSoonTotal,
-      tone: "bg-amber-300",
+      label: "This month",
+      value: data.financePulse.currentMonthExpenses,
+      meta:
+        data.financePulse.currentMonthExpenses <= data.financePulse.previousMonthExpenses
+          ? "tracking lower"
+          : "tracking higher",
+      tone:
+        data.financePulse.currentMonthExpenses <= data.financePulse.previousMonthExpenses
+          ? "bg-emerald-300"
+          : "bg-amber-300",
     },
   ];
-  const scaleBase = Math.max(...financeRows.map((row) => Math.abs(row.value)), 1);
+  const burnScaleBase = Math.max(...burnRows.map((row) => Math.abs(row.value)), 1);
+  const financeScaleBase = Math.max(...financeRows.map((row) => Math.abs(row.value)), 1);
 
   return (
     <Card className="lg:col-span-8">
@@ -59,6 +77,7 @@ export function FinanceCashflowCard({ data }: FinanceCardProps) {
           <div>
             <p className="text-xs uppercase tracking-[0.08em] text-white/65">Months of Freedom</p>
             <p className="mt-1 text-xl font-medium text-cyan-200">{data.runway.monthsOfFreedom} months</p>
+            <p className="mt-1 text-xs text-white/55">Based on {data.runway.burnLabel}</p>
           </div>
         </div>
 
@@ -66,20 +85,22 @@ export function FinanceCashflowCard({ data }: FinanceCardProps) {
           <div className="rounded-2xl border border-emerald-300/20 bg-slate-950/40 p-4">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.08em] text-white/70">Cashflow snapshot</p>
+                <p className="text-xs uppercase tracking-[0.08em] text-white/70">Burn snapshot</p>
                 <p className="mt-1 text-sm text-white/60">
-                  Savings rate {data.financePulse.savingsRatePercent}% · Liability load {data.financePulse.liabilityRatioPercent}%
+                  90d categories and runway scenarios update from the same saved finance entries.
                 </p>
               </div>
             </div>
             <div className="space-y-3">
-              {financeRows.map((row) => {
-                const width = Math.max(18, Math.round((Math.abs(row.value) / scaleBase) * 100));
+              {burnRows.map((row) => {
+                const width = Math.max(18, Math.round((Math.abs(row.value) / burnScaleBase) * 100));
                 return (
                 <div key={row.label}>
                   <div className="mb-1 flex justify-between text-xs text-white/75">
                     <span>{row.label}</span>
-                    <span>{compactCurrencyFormatter.format(row.value)}</span>
+                    <span>
+                      {compactCurrencyFormatter.format(row.value)} · {row.meta}
+                    </span>
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-white/10">
                     <div
@@ -93,6 +114,31 @@ export function FinanceCashflowCard({ data }: FinanceCardProps) {
           </div>
 
           <div className="grid gap-4">
+            <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+              <p className="mb-2 text-xs uppercase tracking-[0.08em] text-white/70">Cashflow markers</p>
+              {financeRows.length > 0 ? (
+                <div className="space-y-2 text-sm">
+                  {financeRows.map((row) => {
+                    const width = Math.max(18, Math.round((Math.abs(row.value) / financeScaleBase) * 100));
+                    return (
+                    <div key={row.label}>
+                      <div className="mb-1 flex justify-between text-xs text-white/75">
+                        <span>{row.label}</span>
+                        <span>
+                          {compactCurrencyFormatter.format(row.value)} · {row.meta}
+                        </span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                        <div className={`h-full rounded-full ${row.tone}`} style={{ width: `${width}%` }} />
+                      </div>
+                    </div>
+                  )})}
+                </div>
+              ) : (
+                <p className="text-sm text-white/55">No cashflow markers yet.</p>
+              )}
+            </div>
+
             <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
               <p className="mb-2 text-xs uppercase tracking-[0.08em] text-white/70">Recent Expenses</p>
               {data.pendingTransactions.length > 0 ? (

@@ -8,7 +8,10 @@ export function RunwayCard({ runway }: { runway: RunwayResult }) {
   return (
     <Card className="lg:col-span-3">
       <CardHeader>
-        <CardTitle>Freedom Runway</CardTitle>
+        <div>
+          <CardTitle>Freedom Runway</CardTitle>
+          <p className="mt-1 text-xs text-white/60">Main number uses {runway.burnLabel}.</p>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -17,7 +20,7 @@ export function RunwayCard({ runway }: { runway: RunwayResult }) {
             <p className="text-lg font-semibold text-white">{compactCurrencyFormatter.format(runway.liquidAssets)}</p>
           </div>
           <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-            <p className="text-xs text-white/60">Monthly Burn</p>
+            <p className="text-xs text-white/60">Active Burn</p>
             <p className="text-lg font-semibold text-white">{compactCurrencyFormatter.format(runway.monthlyBurn)}</p>
           </div>
           <div

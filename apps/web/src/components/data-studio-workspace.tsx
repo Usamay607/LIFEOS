@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
+  deriveFinancePulse,
   deriveFinanceMetricSnapshot,
   FINANCE_METRIC_NAMES,
   getFinanceMetricKey,
@@ -382,6 +383,18 @@ export function DataStudioWorkspace({
     [financeFocusDate, metrics],
   );
   const latestFinanceSnapshot = useMemo(() => deriveFinanceMetricSnapshot(metrics), [metrics]);
+  const financeInsights = useMemo(
+    () =>
+      deriveFinancePulse({
+        transactions,
+        upcomingExpenses,
+        liquidAssets: latestFinanceSnapshot.liquidAssets,
+        totalAssets: latestFinanceSnapshot.totalAssets,
+        totalLiabilities: latestFinanceSnapshot.totalLiabilities,
+        entities,
+      }),
+    [entities, latestFinanceSnapshot.liquidAssets, latestFinanceSnapshot.totalAssets, latestFinanceSnapshot.totalLiabilities, transactions, upcomingExpenses],
+  );
   const balanceSheetDraft = useMemo(() => {
     const override = balanceSheetOverrides[financeFocusDate];
     if (override) {
@@ -832,21 +845,134 @@ export function DataStudioWorkspace({
             </div>
           </DataStudioPanel>
 
-          <DataStudioPanel title="Runway basis" summary="Liquid assets drive runway. Bills and transactions feed the finance card." defaultOpen>
+          <DataStudioPanel title="Runway basis" summary="Runway is calculated from your real expense history, not a manual guess." defaultOpen>
             <div className="space-y-3">
-              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                <p className="text-sm text-white/65">Latest liquid assets</p>
-                <p className="mt-1 text-xl font-semibold text-cyan-100">
-                  {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(latestFinanceSnapshot.liquidAssets)}
-                </p>
+              <div className="grid gap-2 md:grid-cols-4">
+                {financeInsights.scenarios.map((scenario) => (
+                  <div key={scenario.basis} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/48">{scenario.label}</p>
+                    <p className="mt-2 text-lg font-semibold text-white">
+                      {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(scenario.monthlyEquivalent)}
+                    </p>
+                    <p className="mt-1 text-xs text-white/55">{scenario.periodLabel}</p>
+                    <p className="mt-2 text-sm text-cyan-100">{scenario.runwayMonths.toFixed(1)} mo runway</p>
+                  </div>
+                ))}
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                <p className="text-sm text-white/65">Formula</p>
-                <p className="mt-1 text-sm text-white/85">Net worth = total assets - total liabilities</p>
-                <p className="mt-1 text-sm text-white/65">Runway uses liquid assets divided by recent monthly burn.</p>
+                <p className="text-sm text-white/65">Default runway</p>
+                <p className="mt-1 text-sm text-white/85">
+                  LOS currently uses the 90-day average burn for the main runway number. Shorter windows are shown above so you can compare and audit volatility.
+                </p>
+                <p className="mt-1 text-sm text-white/65">
+                  Current month spend {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(financeInsights.currentMonthExpenses)}
+                  {" · "}
+                  Last month {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(financeInsights.previousMonthExpenses)}
+                </p>
               </div>
             </div>
           </DataStudioPanel>
+
+        <DataStudioPanel
+          title="Burn trends"
+          summary="Use this for weekly audits and to see where money has been going over time."
+          defaultOpen
+        >
+          <div className="grid gap-3 lg:grid-cols-[1.15fr_0.85fr]">
+            <div className="space-y-3">
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-white">Weekly expense trend</p>
+                  <p className="text-xs text-white/55">Last 8 rolling weeks</p>
+                </div>
+                <div className="grid gap-2">
+                  {financeInsights.weeklyTrend.map((point) => {
+                    const maxExpense = Math.max(...financeInsights.weeklyTrend.map((item) => item.expenses), 1);
+                    const width = Math.max(8, Math.round((point.expenses / maxExpense) * 100));
+                    return (
+                      <div key={point.label} className="grid gap-1 md:grid-cols-[108px_1fr_84px] md:items-center">
+                        <p className="text-xs text-white/55">{point.label}</p>
+                        <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                          <div className="h-full rounded-full bg-rose-300" style={{ width: `${width}%` }} />
+                        </div>
+                        <p className="text-right text-xs text-white/75">
+                          {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(point.expenses)}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-white">Monthly net trend</p>
+                  <p className="text-xs text-white/55">Last 6 months</p>
+                </div>
+                <div className="grid gap-2">
+                  {financeInsights.monthlyTrend.map((point) => {
+                    const maxNet = Math.max(...financeInsights.monthlyTrend.map((item) => Math.abs(item.net)), 1);
+                    const width = Math.max(8, Math.round((Math.abs(point.net) / maxNet) * 100));
+                    return (
+                      <div key={point.label} className="grid gap-1 md:grid-cols-[88px_1fr_88px] md:items-center">
+                        <p className="text-xs text-white/55">{point.label}</p>
+                        <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                          <div
+                            className={`h-full rounded-full ${point.net >= 0 ? "bg-emerald-300" : "bg-amber-300"}`}
+                            style={{ width: `${width}%` }}
+                          />
+                        </div>
+                        <p className={`text-right text-xs ${point.net >= 0 ? "text-emerald-100" : "text-amber-100"}`}>
+                          {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(point.net)}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <p className="text-sm font-semibold text-white">Top categories (90d)</p>
+                <div className="mt-3 space-y-2">
+                  {financeInsights.topExpenseCategories.length > 0 ? (
+                    financeInsights.topExpenseCategories.map((item) => (
+                      <div key={item.label} className="flex items-center justify-between rounded-lg border border-white/10 bg-slate-950/25 px-2 py-1.5 text-sm text-white/85">
+                        <div>
+                          <p>{item.label}</p>
+                          <p className="text-xs text-white/55">{item.sharePercent}% of 90d spend</p>
+                        </div>
+                        <p>{new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(item.total)}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-white/55">No expense categories recorded yet.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <p className="text-sm font-semibold text-white">Top entities (90d)</p>
+                <div className="mt-3 space-y-2">
+                  {financeInsights.topExpenseEntities.length > 0 ? (
+                    financeInsights.topExpenseEntities.map((item) => (
+                      <div key={`${item.entityId ?? item.label}`} className="flex items-center justify-between rounded-lg border border-white/10 bg-slate-950/25 px-2 py-1.5 text-sm text-white/85">
+                        <div>
+                          <p>{item.label}</p>
+                          <p className="text-xs text-white/55">{item.sharePercent}% of 90d spend</p>
+                        </div>
+                        <p>{new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(item.total)}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-white/55">No entity spend history yet.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </DataStudioPanel>
         </div>
 
         <DataStudioPanel
@@ -895,7 +1021,7 @@ export function DataStudioWorkspace({
 
         <DataStudioPanel
           title="Upcoming bills"
-          summary="Due dates and paid status also feed the dashboard finance card."
+          summary="Due dates feed the dashboard. Marking a bill paid also adds it into burn tracking if no matching expense exists yet."
         >
           <div className="grid gap-2 md:grid-cols-7">
             <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Bill" value={newUpcomingExpense.bill} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, bill: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
