@@ -40,7 +40,7 @@ export default async function DataStudioPage() {
     <main className="space-y-4">
       <SectionHeader
         title="Data Studio"
-        subtitle="Edit LOS directly in-app. Changes sync straight to Notion without opening Notion first."
+        subtitle="Edit and sync in one place."
       />
 
       <DataStudioWorkspace

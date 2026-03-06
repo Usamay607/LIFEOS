@@ -1,13 +1,13 @@
 @import "tailwindcss";
 
 :root {
-  --los-bg-0: #07151f;
-  --los-bg-1: #0f2738;
-  --los-bg-2: #142b20;
-  --los-border: rgba(204, 244, 255, 0.2);
+  --los-bg-0: #060b15;
+  --los-bg-1: #0c1a2a;
+  --los-bg-2: #132036;
+  --los-border: rgba(154, 209, 255, 0.24);
   --los-text: #ecfeff;
-  --los-muted: rgba(236, 254, 255, 0.72);
-  --los-accent: #2dd4bf;
+  --los-muted: rgba(236, 254, 255, 0.66);
+  --los-accent: #31d2ff;
 }
 
 @theme inline {
@@ -29,27 +29,114 @@ body {
   color: var(--los-text);
   font-family: var(--font-manrope), sans-serif;
   background:
-    radial-gradient(1200px 700px at 10% -10%, rgba(60, 130, 246, 0.25) 0%, rgba(0, 0, 0, 0) 55%),
-    radial-gradient(900px 560px at 95% 8%, rgba(16, 185, 129, 0.2) 0%, rgba(0, 0, 0, 0) 50%),
-    linear-gradient(140deg, var(--los-bg-0) 0%, var(--los-bg-1) 55%, var(--los-bg-2) 100%);
+    radial-gradient(1200px 720px at 3% -12%, rgba(107, 124, 255, 0.2) 0%, rgba(0, 0, 0, 0) 58%),
+    radial-gradient(880px 540px at 96% 6%, rgba(56, 189, 248, 0.2) 0%, rgba(0, 0, 0, 0) 52%),
+    radial-gradient(760px 520px at 85% 92%, rgba(34, 197, 94, 0.12) 0%, rgba(0, 0, 0, 0) 55%),
+    linear-gradient(145deg, var(--los-bg-0) 0%, var(--los-bg-1) 44%, var(--los-bg-2) 100%);
   background-attachment: fixed;
 }
 
 .los-shell {
   margin: 0 auto;
-  width: min(1200px, 100% - 2rem);
-  padding: 1.25rem 0 2.5rem;
+  width: min(1380px, 100% - 2rem);
+  padding: 1rem 0 2.25rem;
+}
+
+.los-topbar {
+  margin-bottom: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid rgba(154, 209, 255, 0.18);
+  border-radius: 1rem;
+  background:
+    linear-gradient(165deg, rgba(13, 28, 43, 0.78), rgba(8, 17, 30, 0.6)),
+    radial-gradient(450px 220px at 84% -20%, rgba(59, 130, 246, 0.16), transparent 72%);
+  backdrop-filter: blur(14px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 20px 42px rgba(2, 8, 20, 0.45);
+  padding: 0.85rem 1rem;
+}
+
+.los-topbar-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+.los-search-input {
+  width: min(340px, 72vw);
+  border: 1px solid rgba(154, 209, 255, 0.24);
+  border-radius: 0.8rem;
+  background: rgba(7, 19, 34, 0.58);
+  color: var(--los-text);
+  font-size: 0.85rem;
+  font-weight: 500;
+  outline: none;
+  padding: 0.55rem 0.75rem;
+}
+
+.los-search-input::placeholder {
+  color: rgba(236, 254, 255, 0.54);
+}
+
+.los-search-input:focus-visible {
+  border-color: rgba(49, 210, 255, 0.85);
+  box-shadow: 0 0 0 3px rgba(49, 210, 255, 0.2);
+}
+
+.los-workspace {
+  display: block;
+}
+
+.los-content {
+  min-width: 0;
+}
+
+.los-nav-shell {
+  position: sticky;
+  top: 0.8rem;
+  border: 1px solid rgba(154, 209, 255, 0.16);
+  border-radius: 1rem;
+  background:
+    linear-gradient(170deg, rgba(12, 27, 44, 0.75), rgba(8, 16, 29, 0.62)),
+    radial-gradient(460px 180px at 110% -5%, rgba(49, 210, 255, 0.12), transparent 68%);
+  backdrop-filter: blur(12px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 16px 36px rgba(2, 8, 20, 0.35);
+  padding: 0.8rem;
 }
 
 .los-card {
-  border: 1px solid var(--los-border);
+  border: 1px solid rgba(154, 209, 255, 0.16);
   border-radius: 1rem;
-  background: linear-gradient(145deg, rgba(10, 30, 42, 0.76), rgba(8, 20, 34, 0.55));
-  backdrop-filter: blur(12px);
+  background:
+    linear-gradient(162deg, rgba(12, 29, 45, 0.76), rgba(8, 17, 30, 0.58)),
+    radial-gradient(400px 180px at 92% -12%, rgba(59, 130, 246, 0.14), transparent 68%);
+  backdrop-filter: blur(14px);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 18px 40px rgba(0, 0, 0, 0.35);
+    0 18px 36px rgba(2, 8, 20, 0.38);
   padding: 1rem;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.los-card:hover {
+  border-color: rgba(154, 209, 255, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 20px 44px rgba(2, 8, 20, 0.46);
+  transform: translateY(-1px);
+}
+
+.los-studio section {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 @media (max-width: 700px) {
@@ -61,5 +148,14 @@ body {
   .los-card {
     border-radius: 0.85rem;
     padding: 0.85rem;
+  }
+}
+
+@media (min-width: 960px) {
+  .los-workspace {
+    display: grid;
+    grid-template-columns: 250px minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
   }
 }

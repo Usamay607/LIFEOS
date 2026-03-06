@@ -372,7 +372,7 @@ export function DataStudioWorkspace({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="los-studio space-y-6">
       {toast ? (
         <div
           className={`fixed right-4 top-20 z-50 rounded-lg border px-3 py-2 text-sm font-medium shadow-lg backdrop-blur ${

@@ -2,29 +2,46 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { LucideIcon } from "lucide-react";
+import {
+  Activity,
+  Bot,
+  Building2,
+  ClipboardCheck,
+  Database,
+  FolderKanban,
+  GraduationCap,
+  HeartHandshake,
+  Home,
+  NotebookPen,
+  KeyRound,
+  PlaneTakeoff,
+  Rocket,
+  Target,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
 
-type NavItem = { href: string; label: string };
+type NavItem = { href: string; label: string; icon: LucideIcon };
 
-const PRIMARY_NAV: NavItem[] = [
-  { href: "/", label: "Home" },
-  { href: "/focus", label: "Focus" },
-  { href: "/projects", label: "Projects" },
-  { href: "/weekly-review", label: "Weekly Review" },
-  { href: "/journal", label: "Journal" },
+const CORE_NAV: NavItem[] = [
+  { href: "/", label: "Home", icon: Home },
+  { href: "/focus", label: "Focus", icon: Target },
+  { href: "/projects", label: "Projects", icon: FolderKanban },
+  { href: "/weekly-review", label: "Review", icon: ClipboardCheck },
+  { href: "/journal", label: "Journal", icon: NotebookPen },
 ];
 
-const SECONDARY_NAV: NavItem[] = [
-  { href: "/startup", label: "Startup" },
-  { href: "/launch-checklist", label: "Launch" },
-  { href: "/assistant", label: "Assistant" },
-  { href: "/accounts", label: "Accounts" },
-  { href: "/family", label: "Family" },
-  { href: "/health", label: "Health" },
-  { href: "/learning", label: "Learning" },
-  { href: "/transition", label: "Transition" },
-  { href: "/settings/data", label: "Data Studio" },
-  { href: "/settings/entities", label: "Entity Manager" },
+const MODULE_NAV: NavItem[] = [
+  { href: "/startup", label: "Startup", icon: Rocket },
+  { href: "/launch-checklist", label: "Launch", icon: ClipboardCheck },
+  { href: "/assistant", label: "Assistant", icon: Bot },
+  { href: "/accounts", label: "Accounts", icon: KeyRound },
+  { href: "/family", label: "Family", icon: HeartHandshake },
+  { href: "/health", label: "Health", icon: Activity },
+  { href: "/learning", label: "Learning", icon: GraduationCap },
+  { href: "/transition", label: "Transition", icon: PlaneTakeoff },
+  { href: "/settings/data", label: "Data Studio", icon: Database },
+  { href: "/settings/entities", label: "Entities", icon: Building2 },
 ];
 
 function isActivePath(currentPath: string, href: string): boolean {
@@ -32,69 +49,60 @@ function isActivePath(currentPath: string, href: string): boolean {
   return currentPath === href || currentPath.startsWith(`${href}/`);
 }
 
-function findCurrentLabel(currentPath: string): string {
-  const all = [...PRIMARY_NAV, ...SECONDARY_NAV];
-  const matched = all.find((item) => isActivePath(currentPath, item.href));
-  return matched?.label ?? "Module";
+function NavLink({ currentPath, item }: { currentPath: string; item: NavItem }) {
+  const active = isActivePath(currentPath, item.href);
+  const Icon = item.icon;
+
+  return (
+    <Link
+      href={item.href}
+      className={cn(
+        "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition",
+        active
+          ? "border-cyan-300/70 bg-gradient-to-r from-cyan-300/25 to-teal-300/15 text-cyan-50 shadow-[0_8px_20px_rgba(45,212,191,0.2)]"
+          : "border-white/15 bg-white/[0.03] text-white/80 hover:border-white/25 hover:bg-white/[0.08]",
+      )}
+    >
+      <Icon className="h-4 w-4" />
+      <span>{item.label}</span>
+    </Link>
+  );
 }
 
 export function AppNav() {
   const currentPath = usePathname();
-  const currentLabel = findCurrentLabel(currentPath);
 
   return (
-    <nav className="mb-6 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs uppercase tracking-[0.12em] text-white/60">Navigation</p>
-        <p className="rounded-lg border border-white/20 bg-white/5 px-2 py-1 text-xs uppercase tracking-[0.08em] text-white/80">
-          Current: {currentLabel}
-        </p>
-      </div>
+    <>
+      <nav className="mb-4 flex gap-2 overflow-x-auto pb-1 md:hidden">
+        {CORE_NAV.map((item) => (
+          <NavLink key={item.href} currentPath={currentPath} item={item} />
+        ))}
+      </nav>
 
-      <div className="flex flex-wrap gap-2">
-        {PRIMARY_NAV.map((item) => {
-          const active = isActivePath(currentPath, item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "rounded-xl border px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] transition",
-                active
-                  ? "border-teal-300 bg-teal-300/15 text-teal-100"
-                  : "border-white/20 bg-white/5 text-white/80 hover:bg-white/10",
-              )}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-      </div>
+      <aside className="hidden md:block">
+        <div className="los-nav-shell">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/60">Core</p>
+          <div className="space-y-2">
+            {CORE_NAV.map((item) => (
+              <NavLink key={item.href} currentPath={currentPath} item={item} />
+            ))}
+          </div>
 
-      <details className="rounded-xl border border-white/15 bg-white/5 p-2">
-        <summary className="cursor-pointer list-none px-2 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-white/80">
-          More Modules
-        </summary>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {SECONDARY_NAV.map((item) => {
-            const active = isActivePath(currentPath, item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "rounded-xl border px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] transition",
-                  active
-                    ? "border-teal-300 bg-teal-300/15 text-teal-100"
-                    : "border-white/20 bg-white/5 text-white/80 hover:bg-white/10",
-                )}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
+          <div className="my-4 h-px bg-white/10" />
+
+          <details className="group">
+            <summary className="cursor-pointer list-none text-[11px] font-semibold uppercase tracking-[0.14em] text-white/60 marker:content-none">
+              Modules
+            </summary>
+            <div className="mt-2 space-y-2">
+              {MODULE_NAV.map((item) => (
+                <NavLink key={item.href} currentPath={currentPath} item={item} />
+              ))}
+            </div>
+          </details>
         </div>
-      </details>
-    </nav>
+      </aside>
+    </>
   );
 }

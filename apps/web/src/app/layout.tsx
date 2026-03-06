@@ -32,23 +32,41 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const melbourneDate = new Intl.DateTimeFormat("en-AU", {
+    dateStyle: "full",
+    timeZone: "Australia/Melbourne",
+  }).format(new Date());
+
   return (
     <html lang="en">
       <body className={`${manrope.variable} ${plexMono.variable} antialiased`}>
         <RegisterServiceWorker />
         <PwaInstallPrompt />
         <div className="los-shell">
-          <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.12em] text-white/60">Life Operating System</p>
-              <h1 className="text-3xl font-semibold tracking-tight text-white">LOS Command Center</h1>
+          <header className="los-topbar">
+            <div className="space-y-1">
+              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-cyan-100/70">Life Operating System</p>
+              <h1 className="text-2xl font-semibold tracking-tight text-white md:text-3xl">LOS</h1>
+              <p className="text-xs text-white/60">{melbourneDate}</p>
             </div>
-            <p className="rounded-lg border border-white/20 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.08em] text-white/80">
-              Australia/Melbourne · AUD
-            </p>
+
+            <div className="los-topbar-tools">
+              <input
+                aria-label="Quick search"
+                className="los-search-input"
+                placeholder="Jump to module or page..."
+                type="search"
+              />
+              <p className="rounded-xl border border-cyan-200/20 bg-cyan-200/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-cyan-50">
+                Australia/Melbourne · AUD
+              </p>
+            </div>
           </header>
-          <AppNav />
-          {children}
+
+          <div className="los-workspace">
+            <AppNav />
+            <div className="los-content">{children}</div>
+          </div>
         </div>
       </body>
     </html>

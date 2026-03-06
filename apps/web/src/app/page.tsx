@@ -19,7 +19,7 @@ export default async function HomePage() {
     <main className="space-y-4">
       <SectionHeader
         title="Home"
-        subtitle="Tier 1 command center: projects, action queue, finance, health, family, and transition signals in one view."
+        subtitle="Your day at a glance."
       />
       <MobileQuickActions />
 
