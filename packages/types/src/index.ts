@@ -118,6 +118,76 @@ export interface MetricPoint {
   projectId?: Id;
 }
 
+export const FINANCE_METRIC_NAMES = {
+  totalAssets: "Total Assets",
+  totalLiabilities: "Total Liabilities",
+  liquidAssets: "Liquid Assets",
+  netWorth: "Net Worth",
+} as const;
+
+export type FinanceMetricKey = keyof typeof FINANCE_METRIC_NAMES;
+
+export interface FinanceMetricSnapshot {
+  totalAssets: number;
+  totalLiabilities: number;
+  liquidAssets: number;
+  netWorth: number;
+}
+
+const FINANCE_METRIC_ALIASES: Record<FinanceMetricKey, string[]> = {
+  totalAssets: ["total assets", "assets"],
+  totalLiabilities: ["total liabilities", "liabilities"],
+  liquidAssets: ["liquid assets", "available cash", "cash reserves"],
+  netWorth: ["net worth"],
+};
+
+function roundFinanceValue(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function normalizeMetricName(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function getFinanceMetricKey(metricName: string): FinanceMetricKey | null {
+  const normalized = normalizeMetricName(metricName);
+
+  for (const [key, aliases] of Object.entries(FINANCE_METRIC_ALIASES) as Array<[FinanceMetricKey, string[]]>) {
+    if (aliases.includes(normalized)) {
+      return key;
+    }
+  }
+
+  return null;
+}
+
+export function deriveFinanceMetricSnapshot(metrics: MetricPoint[]): FinanceMetricSnapshot {
+  const latestByKey = new Map<FinanceMetricKey, MetricPoint>();
+
+  const sorted = [...metrics].sort((left, right) => right.date.localeCompare(left.date));
+  for (const metric of sorted) {
+    const key = getFinanceMetricKey(metric.metricName);
+    if (!key || latestByKey.has(key)) {
+      continue;
+    }
+    latestByKey.set(key, metric);
+  }
+
+  const totalAssets = latestByKey.get("totalAssets")?.value ?? 0;
+  const totalLiabilities = latestByKey.get("totalLiabilities")?.value ?? 0;
+  const liquidAssets = latestByKey.get("liquidAssets")?.value ?? 0;
+  const legacyNetWorth = latestByKey.get("netWorth")?.value;
+  const hasBalanceSheetInputs = latestByKey.has("totalAssets") || latestByKey.has("totalLiabilities");
+  const netWorth = hasBalanceSheetInputs ? totalAssets - totalLiabilities : (legacyNetWorth ?? liquidAssets);
+
+  return {
+    totalAssets: roundFinanceValue(totalAssets),
+    totalLiabilities: roundFinanceValue(totalLiabilities),
+    liquidAssets: roundFinanceValue(liquidAssets),
+    netWorth: roundFinanceValue(netWorth),
+  };
+}
+
 export interface ReviewNote {
   id: Id;
   reviewDate: string;
@@ -258,9 +328,21 @@ export interface LearningOverview {
 
 export interface RunwayResult {
   netWorth: number;
+  totalAssets: number;
+  totalLiabilities: number;
   liquidAssets: number;
   monthlyBurn: number;
   monthsOfFreedom: number;
+}
+
+export interface FinancePulse {
+  last30Income: number;
+  last30Expenses: number;
+  last30NetCashflow: number;
+  savingsRatePercent: number;
+  dueSoonTotal: number;
+  dueSoonCount: number;
+  liabilityRatioPercent: number;
 }
 
 export interface HomeDashboardData {
@@ -268,6 +350,7 @@ export interface HomeDashboardData {
   topProjects: Project[];
   nextTasks: Task[];
   runway: RunwayResult;
+  financePulse: FinancePulse;
   healthOverview: HealthOverview;
   familyOverview: FamilyOverview;
   transitionOverview: TransitionOverview;

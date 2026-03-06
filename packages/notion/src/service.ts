@@ -23,6 +23,7 @@ import type {
   CreateWorkoutInput,
   Entity,
   FamilyEvent,
+  FinancePulse,
   FamilyOverview,
   HealthDailyLog,
   HealthOverview,
@@ -66,6 +67,7 @@ import type {
   WorkoutSession,
   RelationshipCheckin,
 } from "@los/types";
+import { deriveFinanceMetricSnapshot } from "@los/types";
 import { loadLosEnv, type LosEnv } from "./env";
 import { memoryStore } from "./memory-store";
 import {
@@ -218,8 +220,8 @@ export class LosService {
       projects,
       tasks,
       runway,
-      upcomingExpenses,
-      pendingTransactions,
+      allTransactions,
+      allUpcomingExpenses,
       healthOverview,
       familyOverview,
       transitionOverview,
@@ -228,8 +230,8 @@ export class LosService {
       this.listProjects("ACTIVE"),
       this.listTasks(),
       this.getRunway(),
-      this.listUpcomingExpenses(),
-      this.listPendingTransactions(),
+      this.listTransactions(),
+      this.listUpcomingExpenses(true),
       this.getHealthOverview(),
       this.getFamilyOverview(),
       this.getTransitionOverview(),
@@ -245,17 +247,58 @@ export class LosService {
       .sort((a, b) => (a.deadline ?? "9999").localeCompare(b.deadline ?? "9999"))
       .slice(0, 3);
 
+    const pendingTransactions = allTransactions
+      .filter((transaction) => transaction.type === "EXPENSE")
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 5);
+
+    const upcomingExpenses = allUpcomingExpenses
+      .filter((expense) => !expense.paid)
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+      .slice(0, 5);
+
     return {
       generatedAt: new Date().toISOString(),
       topProjects,
       nextTasks,
       runway,
+      financePulse: this.buildFinancePulse(allTransactions, allUpcomingExpenses, runway),
       healthOverview,
       familyOverview,
       transitionOverview,
       learningOverview,
       upcomingExpenses,
       pendingTransactions,
+    };
+  }
+
+  private buildFinancePulse(
+    transactions: Transaction[],
+    upcomingExpenses: UpcomingExpense[],
+    runway: RunwayResult,
+  ): FinancePulse {
+    const windowStart = Date.now() - 30 * DAY_MS;
+
+    const last30Transactions = transactions.filter((transaction) => new Date(transaction.date).getTime() >= windowStart);
+    const last30Income = round2(
+      sum(last30Transactions.filter((transaction) => transaction.type === "INCOME").map((transaction) => transaction.amount)),
+    );
+    const last30Expenses = round2(
+      sum(last30Transactions.filter((transaction) => transaction.type === "EXPENSE").map((transaction) => transaction.amount)),
+    );
+    const last30NetCashflow = round2(last30Income - last30Expenses);
+
+    const dueSoon = upcomingExpenses.filter((expense) => !expense.paid && daysUntilDate(expense.dueDate) <= 14);
+
+    return {
+      last30Income,
+      last30Expenses,
+      last30NetCashflow,
+      savingsRatePercent: last30Income > 0 ? round2(Math.max(0, (last30NetCashflow / last30Income) * 100)) : 0,
+      dueSoonTotal: round2(sum(dueSoon.map((expense) => expense.amount))),
+      dueSoonCount: dueSoon.length,
+      liabilityRatioPercent:
+        runway.totalAssets > 0 ? round2((runway.totalLiabilities / runway.totalAssets) * 100) : 0,
     };
   }
 
@@ -1147,16 +1190,8 @@ export class LosService {
 
   async getRunway(): Promise<RunwayResult> {
     const [metrics, transactions] = await Promise.all([this.listMetrics(), this.listTransactions()]);
-
-    const liquidAssetMetric = metrics
-      .filter((metric) => metric.metricName.toLowerCase().includes("liquid assets"))
-      .sort((a, b) => b.date.localeCompare(a.date))[0];
-    const netWorthMetric = metrics
-      .filter((metric) => metric.metricName.toLowerCase().includes("net worth"))
-      .sort((a, b) => b.date.localeCompare(a.date))[0];
-
-    const liquidAssets = liquidAssetMetric?.value ?? 0;
-    const netWorth = netWorthMetric?.value ?? liquidAssets;
+    const financeSnapshot = deriveFinanceMetricSnapshot(metrics);
+    const { totalAssets, totalLiabilities, liquidAssets, netWorth } = financeSnapshot;
 
     const now = Date.now();
     const ninetyDaysAgo = now - DAY_MS * 90;
@@ -1172,6 +1207,8 @@ export class LosService {
 
     return {
       netWorth: round2(netWorth),
+      totalAssets: round2(totalAssets),
+      totalLiabilities: round2(totalLiabilities),
       liquidAssets: round2(liquidAssets),
       monthlyBurn,
       monthsOfFreedom,

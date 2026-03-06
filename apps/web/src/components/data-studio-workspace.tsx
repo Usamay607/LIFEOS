@@ -1,6 +1,12 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
+import {
+  deriveFinanceMetricSnapshot,
+  FINANCE_METRIC_NAMES,
+  getFinanceMetricKey,
+} from "@los/types";
 import type {
   AccountRef,
   CourseCert,
@@ -77,6 +83,47 @@ function localDateKey(deltaDays = 0): string {
   return `${year}-${month}-${day}`;
 }
 
+function latestFinanceStatementDate(metrics: MetricPoint[]): string | null {
+  const datedMetrics = metrics
+    .filter((metric) => getFinanceMetricKey(metric.metricName) !== null)
+    .sort((left, right) => right.date.localeCompare(left.date));
+
+  return datedMetrics[0] ? toDateInput(datedMetrics[0].date) : null;
+}
+
+function getFinanceMetricForDate(metrics: MetricPoint[], key: keyof typeof FINANCE_METRIC_NAMES, date: string) {
+  return metrics.find((metric) => getFinanceMetricKey(metric.metricName) === key && toDateInput(metric.date) === date);
+}
+
+function DataStudioPanel({
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  summary?: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <details open={defaultOpen} className="rounded-2xl border border-white/10 bg-slate-950/20 p-4">
+      <summary className="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-white">{title}</p>
+            {summary ? <p className="mt-1 text-xs text-white/55">{summary}</p> : null}
+          </div>
+          <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/55">
+            Open
+          </span>
+        </div>
+      </summary>
+      <div className="mt-4 space-y-3">{children}</div>
+    </details>
+  );
+}
+
 export function DataStudioWorkspace({
   entities,
   initialProjects,
@@ -111,7 +158,7 @@ export function DataStudioWorkspace({
   const [projectsViewMode, setProjectsViewMode] = useState<DateViewMode>("ALL");
   const [projectsFocusDate, setProjectsFocusDate] = useState(() => localDateKey(0));
   const [financeViewMode, setFinanceViewMode] = useState<DateViewMode>("ALL");
-  const [financeFocusDate, setFinanceFocusDate] = useState(() => localDateKey(0));
+  const [financeFocusDate, setFinanceFocusDate] = useState(() => latestFinanceStatementDate(initialMetrics) ?? localDateKey(0));
   const [learningViewMode, setLearningViewMode] = useState<DateViewMode>("ALL");
   const [learningFocusDate, setLearningFocusDate] = useState(() => localDateKey(0));
   const [accountsViewMode, setAccountsViewMode] = useState<DateViewMode>("ALL");
@@ -122,6 +169,10 @@ export function DataStudioWorkspace({
   const [transitionFocusDate, setTransitionFocusDate] = useState(() => localDateKey(0));
 
   const entityOptions = useMemo(() => entities.map((entity) => ({ id: entity.id, name: entity.name })), [entities]);
+  const defaultFinanceEntityId = useMemo(
+    () => entities.find((entity) => entity.id === "ent_personal")?.id ?? entityOptions[0]?.id ?? "",
+    [entities, entityOptions],
+  );
   const todayDate = useMemo(() => localDateKey(0), []);
   const yesterdayDate = useMemo(() => localDateKey(-1), []);
   const activeHealthDate = healthViewMode === "SELECTED_DAY" ? healthFocusDate || todayDate : todayDate;
@@ -150,12 +201,16 @@ export function DataStudioWorkspace({
         : projects,
     [projects, projectsFocusDate, projectsViewMode],
   );
+  const customFinanceMetrics = useMemo(
+    () => metrics.filter((item) => getFinanceMetricKey(item.metricName) === null),
+    [metrics],
+  );
   const visibleMetrics = useMemo(
     () =>
       financeViewMode === "SELECTED_DAY"
-        ? metrics.filter((item) => toDateInput(item.date) === financeFocusDate)
-        : metrics.slice(0, 10),
-    [financeFocusDate, financeViewMode, metrics],
+        ? customFinanceMetrics.filter((item) => toDateInput(item.date) === financeFocusDate)
+        : customFinanceMetrics.slice(0, 10),
+    [customFinanceMetrics, financeFocusDate, financeViewMode],
   );
   const visibleTransactions = useMemo(
     () =>
@@ -248,6 +303,9 @@ export function DataStudioWorkspace({
     value: "",
     date: new Date().toISOString().slice(0, 10),
   });
+  const [balanceSheetOverrides, setBalanceSheetOverrides] = useState<
+    Record<string, { totalAssets: string; totalLiabilities: string; liquidAssets: string }>
+  >({});
 
   const [newTransaction, setNewTransaction] = useState({
     date: new Date().toISOString().slice(0, 10),
@@ -319,7 +377,34 @@ export function DataStudioWorkspace({
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  async function savePatch<T>(url: string, body: unknown): Promise<T | null> {
+  const balanceSheetSnapshot = useMemo(
+    () => deriveFinanceMetricSnapshot(metrics.filter((item) => toDateInput(item.date) === financeFocusDate)),
+    [financeFocusDate, metrics],
+  );
+  const latestFinanceSnapshot = useMemo(() => deriveFinanceMetricSnapshot(metrics), [metrics]);
+  const balanceSheetDraft = useMemo(() => {
+    const override = balanceSheetOverrides[financeFocusDate];
+    if (override) {
+      return override;
+    }
+
+    const totalAssetsMetric = getFinanceMetricForDate(metrics, "totalAssets", financeFocusDate);
+    const totalLiabilitiesMetric = getFinanceMetricForDate(metrics, "totalLiabilities", financeFocusDate);
+    const liquidAssetsMetric = getFinanceMetricForDate(metrics, "liquidAssets", financeFocusDate);
+
+    return {
+      totalAssets: totalAssetsMetric ? String(totalAssetsMetric.value) : "",
+      totalLiabilities: totalLiabilitiesMetric ? String(totalLiabilitiesMetric.value) : "",
+      liquidAssets: liquidAssetsMetric ? String(liquidAssetsMetric.value) : "",
+    };
+  }, [balanceSheetOverrides, financeFocusDate, metrics]);
+  const draftNetWorth = useMemo(() => {
+    const totalAssets = Number(balanceSheetDraft.totalAssets) || 0;
+    const totalLiabilities = Number(balanceSheetDraft.totalLiabilities) || 0;
+    return totalAssets - totalLiabilities;
+  }, [balanceSheetDraft.totalAssets, balanceSheetDraft.totalLiabilities]);
+
+  async function savePatch<T>(url: string, body: unknown, options?: { successMessage?: string | null }): Promise<T | null> {
     const response = await fetch(url, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -341,11 +426,14 @@ export function DataStudioWorkspace({
     }
 
     const payload = (await response.json()) as T;
-    setToast({ message: "Saved to Notion", tone: "success" });
+    const successMessage = options?.successMessage ?? "Saved to Notion";
+    if (successMessage) {
+      setToast({ message: successMessage, tone: "success" });
+    }
     return payload;
   }
 
-  async function saveCreate<T>(url: string, body: unknown): Promise<T | null> {
+  async function saveCreate<T>(url: string, body: unknown, options?: { successMessage?: string | null }): Promise<T | null> {
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -367,8 +455,62 @@ export function DataStudioWorkspace({
     }
 
     const payload = (await response.json()) as T;
-    setToast({ message: "Saved to Notion", tone: "success" });
+    const successMessage = options?.successMessage ?? "Saved to Notion";
+    if (successMessage) {
+      setToast({ message: successMessage, tone: "success" });
+    }
     return payload;
+  }
+
+  async function saveBalanceSheet() {
+    const totalAssets = Number(balanceSheetDraft.totalAssets);
+    const totalLiabilities = Number(balanceSheetDraft.totalLiabilities);
+    const liquidAssets = Number(balanceSheetDraft.liquidAssets);
+
+    if (![totalAssets, totalLiabilities, liquidAssets].every((value) => Number.isFinite(value) && value >= 0)) {
+      setToast({ message: "Enter valid asset, liability, and liquid asset amounts.", tone: "error" });
+      return;
+    }
+
+    const fields: Array<{ key: keyof typeof FINANCE_METRIC_NAMES; value: number }> = [
+      { key: "totalAssets", value: totalAssets },
+      { key: "totalLiabilities", value: totalLiabilities },
+      { key: "liquidAssets", value: liquidAssets },
+    ];
+
+    let nextMetrics = metrics;
+
+    for (const field of fields) {
+      const existing = getFinanceMetricForDate(nextMetrics, field.key, financeFocusDate);
+        const payload = {
+          metricName: FINANCE_METRIC_NAMES[field.key],
+          category: "FINANCE" as const,
+          unit: "AUD" as const,
+          value: field.value,
+          date: financeFocusDate,
+          entityId: existing?.entityId ?? defaultFinanceEntityId ?? undefined,
+        };
+
+      const saved = existing
+        ? await savePatch<MetricPoint>(`/api/metrics/${existing.id}`, payload, { successMessage: null })
+        : await saveCreate<MetricPoint>("/api/metrics", payload, { successMessage: null });
+
+      if (!saved) {
+        return;
+      }
+
+      nextMetrics = [saved, ...nextMetrics.filter((item) => item.id !== saved.id)].sort((left, right) =>
+        right.date.localeCompare(left.date),
+      );
+    }
+
+    setMetrics(nextMetrics);
+    setBalanceSheetOverrides((current) => {
+      const next = { ...current };
+      delete next[financeFocusDate];
+      return next;
+    });
+    setToast({ message: "Balance sheet saved to Notion", tone: "success" });
   }
 
   return (
@@ -588,149 +730,279 @@ export function DataStudioWorkspace({
             />
           ) : null}
           <span className="text-xs text-white/65">
-            {visibleMetrics.length} metrics • {visibleTransactions.length} transactions • {visibleUpcomingExpenses.length} upcoming
+            Net worth auto-calculates from assets - liabilities • {visibleTransactions.length} transactions • {visibleUpcomingExpenses.length} bills
           </span>
         </div>
 
-        <div className="grid gap-2 md:grid-cols-6">
-          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Metric name" value={newMetric.metricName} onChange={(event) => setNewMetric((current) => ({ ...current, metricName: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
-          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newMetric.category} onChange={(event) => setNewMetric((current) => ({ ...current, category: (event.target as HTMLInputElement | HTMLSelectElement).value as MetricPoint["category"] }))}>
-            {METRIC_CATEGORIES.map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
-          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newMetric.unit} onChange={(event) => setNewMetric((current) => ({ ...current, unit: (event.target as HTMLInputElement | HTMLSelectElement).value as MetricPoint["unit"] }))}>
-            {METRIC_UNITS.map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
-          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Value" value={newMetric.value} onChange={(event) => setNewMetric((current) => ({ ...current, value: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
-          <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newMetric.date} onChange={(event) => setNewMetric((current) => ({ ...current, date: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
-          <Button onClick={async () => {
-            const value = Number(newMetric.value);
-            if (!Number.isFinite(value)) return;
-            const created = await saveCreate<MetricPoint>("/api/metrics", {
-              metricName: newMetric.metricName,
-              category: newMetric.category,
-              unit: newMetric.unit,
-              value,
-              date: newMetric.date,
-            });
-            if (!created) return;
-            setMetrics((current) => [created, ...current]);
-            setNewMetric((current) => ({ ...current, metricName: "", value: "" }));
-          }}>Add Metric</Button>
+        <div className="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
+          <DataStudioPanel title="Balance sheet" summary="This drives net worth on the dashboard." defaultOpen>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-100/70">Net worth</p>
+                <h3 className="mt-2 text-2xl font-semibold text-white">
+                  {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(draftNetWorth)}
+                </h3>
+                <p className="mt-1 text-sm text-white/65">Statement date {financeFocusDate}</p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-slate-950/35 px-3 py-2 text-right">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/45">Latest saved</p>
+                <p className="mt-1 text-sm text-white">
+                  {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(latestFinanceSnapshot.netWorth)}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-2 md:grid-cols-5">
+              <input
+                type="date"
+                className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white"
+                value={financeFocusDate}
+                onChange={(event) => setFinanceFocusDate((event.target as HTMLInputElement).value || todayDate)}
+              />
+              <input
+                className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white"
+                placeholder="Total assets"
+                value={balanceSheetDraft.totalAssets}
+                onChange={(event) =>
+                  setBalanceSheetOverrides((current) => ({
+                    ...current,
+                    [financeFocusDate]: {
+                      ...balanceSheetDraft,
+                      totalAssets: (event.target as HTMLInputElement).value,
+                    },
+                  }))
+                }
+              />
+              <input
+                className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white"
+                placeholder="Total liabilities"
+                value={balanceSheetDraft.totalLiabilities}
+                onChange={(event) =>
+                  setBalanceSheetOverrides((current) => ({
+                    ...current,
+                    [financeFocusDate]: {
+                      ...balanceSheetDraft,
+                      totalLiabilities: (event.target as HTMLInputElement).value,
+                    },
+                  }))
+                }
+              />
+              <input
+                className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white"
+                placeholder="Liquid assets"
+                value={balanceSheetDraft.liquidAssets}
+                onChange={(event) =>
+                  setBalanceSheetOverrides((current) => ({
+                    ...current,
+                    [financeFocusDate]: {
+                      ...balanceSheetDraft,
+                      liquidAssets: (event.target as HTMLInputElement).value,
+                    },
+                  }))
+                }
+              />
+              <Button onClick={saveBalanceSheet}>Save Balance Sheet</Button>
+            </div>
+
+            <div className="grid gap-2 md:grid-cols-4">
+              <div className="rounded-xl border border-white/10 bg-slate-950/25 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/48">Assets</p>
+                <p className="mt-2 text-lg font-semibold text-emerald-100">
+                  {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(balanceSheetSnapshot.totalAssets)}
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-slate-950/25 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/48">Liabilities</p>
+                <p className="mt-2 text-lg font-semibold text-rose-100">
+                  {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(balanceSheetSnapshot.totalLiabilities)}
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-slate-950/25 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/48">Liquid assets</p>
+                <p className="mt-2 text-lg font-semibold text-cyan-100">
+                  {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(balanceSheetSnapshot.liquidAssets)}
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-slate-950/25 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/48">Net worth</p>
+                <p className={`mt-2 text-lg font-semibold ${balanceSheetSnapshot.netWorth >= 0 ? "text-emerald-100" : "text-rose-100"}`}>
+                  {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(balanceSheetSnapshot.netWorth)}
+                </p>
+              </div>
+            </div>
+          </DataStudioPanel>
+
+          <DataStudioPanel title="Runway basis" summary="Liquid assets drive runway. Bills and transactions feed the finance card." defaultOpen>
+            <div className="space-y-3">
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <p className="text-sm text-white/65">Latest liquid assets</p>
+                <p className="mt-1 text-xl font-semibold text-cyan-100">
+                  {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(latestFinanceSnapshot.liquidAssets)}
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <p className="text-sm text-white/65">Formula</p>
+                <p className="mt-1 text-sm text-white/85">Net worth = total assets - total liabilities</p>
+                <p className="mt-1 text-sm text-white/65">Runway uses liquid assets divided by recent monthly burn.</p>
+              </div>
+            </div>
+          </DataStudioPanel>
         </div>
 
-        <div className="space-y-2">
-          {visibleMetrics.map((metric) => (
-            <article key={metric.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-6">
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={metric.metricName} onChange={(event) => setMetrics((current) => current.map((item) => item.id === metric.id ? { ...item, metricName: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
-              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={metric.category} onChange={(event) => setMetrics((current) => current.map((item) => item.id === metric.id ? { ...item, category: (event.target as HTMLInputElement | HTMLSelectElement).value as MetricPoint["category"] } : item))}>
-                {METRIC_CATEGORIES.map((value) => <option key={value} value={value}>{value}</option>)}
-              </select>
-              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={metric.unit} onChange={(event) => setMetrics((current) => current.map((item) => item.id === metric.id ? { ...item, unit: (event.target as HTMLInputElement | HTMLSelectElement).value as MetricPoint["unit"] } : item))}>
-                {METRIC_UNITS.map((value) => <option key={value} value={value}>{value}</option>)}
-              </select>
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(metric.value)} onChange={(event) => setMetrics((current) => current.map((item) => item.id === metric.id ? { ...item, value: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
-              <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(metric.date)} onChange={(event) => setMetrics((current) => current.map((item) => item.id === metric.id ? { ...item, date: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
-              <Button variant="ghost" onClick={async () => {
-                const updated = await savePatch<MetricPoint>(`/api/metrics/${metric.id}`, {
-                  metricName: metric.metricName,
-                  category: metric.category,
-                  unit: metric.unit,
-                  value: metric.value,
-                  date: metric.date,
-                });
-                if (!updated) return;
-                setMetrics((current) => current.map((item) => item.id === updated.id ? updated : item));
-              }}>Save</Button>
-            </article>
-          ))}
-        </div>
+        <DataStudioPanel
+          title="Transactions"
+          summary="Income and expense entries here drive the home finance card."
+        >
+          <div className="grid gap-2 md:grid-cols-6">
+            <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newTransaction.date} onChange={(event) => setNewTransaction((current) => ({ ...current, date: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
+            <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Amount" value={newTransaction.amount} onChange={(event) => setNewTransaction((current) => ({ ...current, amount: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
+            <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newTransaction.type} onChange={(event) => setNewTransaction((current) => ({ ...current, type: (event.target as HTMLInputElement | HTMLSelectElement).value as Transaction["type"] }))}>{TXN_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+            <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newTransaction.entityId} onChange={(event) => setNewTransaction((current) => ({ ...current, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value }))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+            <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Category" value={newTransaction.category} onChange={(event) => setNewTransaction((current) => ({ ...current, category: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
+            <Button onClick={async () => {
+              const amount = Number(newTransaction.amount);
+              if (!Number.isFinite(amount)) return;
+              const created = await saveCreate<Transaction>("/api/transactions", {
+                date: newTransaction.date,
+                amount,
+                type: newTransaction.type,
+                entityId: newTransaction.entityId,
+                category: newTransaction.category,
+              });
+              if (!created) return;
+              setTransactions((current) => [created, ...current]);
+              setNewTransaction((current) => ({ ...current, amount: "", category: "" }));
+            }}>Add Txn</Button>
+          </div>
 
-        <div className="grid gap-2 md:grid-cols-6">
-          <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newTransaction.date} onChange={(event) => setNewTransaction((current) => ({ ...current, date: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
-          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Amount" value={newTransaction.amount} onChange={(event) => setNewTransaction((current) => ({ ...current, amount: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
-          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newTransaction.type} onChange={(event) => setNewTransaction((current) => ({ ...current, type: (event.target as HTMLInputElement | HTMLSelectElement).value as Transaction["type"] }))}>{TXN_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
-          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newTransaction.entityId} onChange={(event) => setNewTransaction((current) => ({ ...current, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value }))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
-          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Category" value={newTransaction.category} onChange={(event) => setNewTransaction((current) => ({ ...current, category: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
-          <Button onClick={async () => {
-            const amount = Number(newTransaction.amount);
-            if (!Number.isFinite(amount)) return;
-            const created = await saveCreate<Transaction>("/api/transactions", {
-              date: newTransaction.date,
-              amount,
-              type: newTransaction.type,
-              entityId: newTransaction.entityId,
-              category: newTransaction.category,
-            });
-            if (!created) return;
-            setTransactions((current) => [created, ...current]);
-            setNewTransaction((current) => ({ ...current, amount: "", category: "" }));
-          }}>Add Txn</Button>
-        </div>
+          <div className="space-y-2">
+            {visibleTransactions.map((transaction) => (
+              <article key={transaction.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-6">
+                <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(transaction.date)} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, date: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(transaction.amount)} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, amount: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
+                <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={transaction.type} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, type: (event.target as HTMLInputElement | HTMLSelectElement).value as Transaction["type"] } : item))}>{TXN_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+                <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={transaction.entityId} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={transaction.category} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, category: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
+                <Button variant="ghost" onClick={async () => {
+                  const updated = await savePatch<Transaction>(`/api/transactions/${transaction.id}`, transaction);
+                  if (!updated) return;
+                  setTransactions((current) => current.map((item) => item.id === updated.id ? updated : item));
+                }}>Save</Button>
+              </article>
+            ))}
+          </div>
+        </DataStudioPanel>
 
-        <div className="space-y-2">
-          {visibleTransactions.map((transaction) => (
-            <article key={transaction.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-6">
-              <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(transaction.date)} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, date: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(transaction.amount)} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, amount: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
-              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={transaction.type} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, type: (event.target as HTMLInputElement | HTMLSelectElement).value as Transaction["type"] } : item))}>{TXN_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
-              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={transaction.entityId} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={transaction.category} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, category: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
-              <Button variant="ghost" onClick={async () => {
-                const updated = await savePatch<Transaction>(`/api/transactions/${transaction.id}`, transaction);
-                if (!updated) return;
-                setTransactions((current) => current.map((item) => item.id === updated.id ? updated : item));
-              }}>Save</Button>
-            </article>
-          ))}
-        </div>
+        <DataStudioPanel
+          title="Upcoming bills"
+          summary="Due dates and paid status also feed the dashboard finance card."
+        >
+          <div className="grid gap-2 md:grid-cols-7">
+            <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Bill" value={newUpcomingExpense.bill} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, bill: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
+            <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Amount" value={newUpcomingExpense.amount} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, amount: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
+            <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newUpcomingExpense.dueDate} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, dueDate: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
+            <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newUpcomingExpense.frequency} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, frequency: (event.target as HTMLInputElement | HTMLSelectElement).value as UpcomingExpense["frequency"] }))}>{EXPENSE_FREQUENCIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+            <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newUpcomingExpense.entityId} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value }))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+            <label className="flex items-center gap-2 rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white">
+              <input type="checkbox" checked={newUpcomingExpense.paid} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, paid: (event.target as HTMLInputElement).checked }))} />
+              Paid
+            </label>
+            <Button onClick={async () => {
+              const amount = Number(newUpcomingExpense.amount);
+              if (!Number.isFinite(amount)) return;
+              const created = await saveCreate<UpcomingExpense>("/api/upcoming-expenses", {
+                bill: newUpcomingExpense.bill,
+                amount,
+                dueDate: newUpcomingExpense.dueDate,
+                frequency: newUpcomingExpense.frequency,
+                entityId: newUpcomingExpense.entityId,
+                paid: newUpcomingExpense.paid,
+              });
+              if (!created) return;
+              setUpcomingExpenses((current) => [created, ...current]);
+              setNewUpcomingExpense((current) => ({ ...current, bill: "", amount: "" }));
+            }}>Add Upcoming</Button>
+          </div>
 
-        <div className="grid gap-2 md:grid-cols-7">
-          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Bill" value={newUpcomingExpense.bill} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, bill: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
-          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Amount" value={newUpcomingExpense.amount} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, amount: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
-          <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newUpcomingExpense.dueDate} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, dueDate: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
-          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newUpcomingExpense.frequency} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, frequency: (event.target as HTMLInputElement | HTMLSelectElement).value as UpcomingExpense["frequency"] }))}>{EXPENSE_FREQUENCIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
-          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newUpcomingExpense.entityId} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value }))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
-          <label className="flex items-center gap-2 rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white">
-            <input type="checkbox" checked={newUpcomingExpense.paid} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, paid: (event.target as HTMLInputElement).checked }))} />
-            Paid
-          </label>
-          <Button onClick={async () => {
-            const amount = Number(newUpcomingExpense.amount);
-            if (!Number.isFinite(amount)) return;
-            const created = await saveCreate<UpcomingExpense>("/api/upcoming-expenses", {
-              bill: newUpcomingExpense.bill,
-              amount,
-              dueDate: newUpcomingExpense.dueDate,
-              frequency: newUpcomingExpense.frequency,
-              entityId: newUpcomingExpense.entityId,
-              paid: newUpcomingExpense.paid,
-            });
-            if (!created) return;
-            setUpcomingExpenses((current) => [created, ...current]);
-            setNewUpcomingExpense((current) => ({ ...current, bill: "", amount: "" }));
-          }}>Add Upcoming</Button>
-        </div>
+          <div className="space-y-2">
+            {visibleUpcomingExpenses.map((expense) => (
+              <article key={expense.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-7">
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={expense.bill} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, bill: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(expense.amount)} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, amount: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
+                <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(expense.dueDate)} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, dueDate: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
+                <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={expense.frequency} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, frequency: (event.target as HTMLInputElement | HTMLSelectElement).value as UpcomingExpense["frequency"] } : item))}>{EXPENSE_FREQUENCIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+                <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={expense.entityId} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+                <label className="flex items-center gap-2 rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white">
+                  <input type="checkbox" checked={expense.paid} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, paid: (event.target as HTMLInputElement).checked } : item))} />
+                  Paid
+                </label>
+                <Button variant="ghost" onClick={async () => {
+                  const updated = await savePatch<UpcomingExpense>(`/api/upcoming-expenses/${expense.id}`, expense);
+                  if (!updated) return;
+                  setUpcomingExpenses((current) => current.map((item) => item.id === updated.id ? updated : item));
+                }}>Save</Button>
+              </article>
+            ))}
+          </div>
+        </DataStudioPanel>
 
-        <div className="space-y-2">
-          {visibleUpcomingExpenses.map((expense) => (
-            <article key={expense.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-7">
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={expense.bill} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, bill: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(expense.amount)} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, amount: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
-              <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(expense.dueDate)} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, dueDate: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
-              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={expense.frequency} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, frequency: (event.target as HTMLInputElement | HTMLSelectElement).value as UpcomingExpense["frequency"] } : item))}>{EXPENSE_FREQUENCIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
-              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={expense.entityId} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
-              <label className="flex items-center gap-2 rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white">
-                <input type="checkbox" checked={expense.paid} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, paid: (event.target as HTMLInputElement).checked } : item))} />
-                Paid
-              </label>
-              <Button variant="ghost" onClick={async () => {
-                const updated = await savePatch<UpcomingExpense>(`/api/upcoming-expenses/${expense.id}`, expense);
-                if (!updated) return;
-                setUpcomingExpenses((current) => current.map((item) => item.id === updated.id ? updated : item));
-              }}>Save</Button>
-            </article>
-          ))}
-        </div>
+        <DataStudioPanel
+          title="Other finance metrics"
+          summary="Optional. Use this only if you want extra finance tracking beyond balance sheet, transactions, and bills."
+        >
+          <div className="grid gap-2 md:grid-cols-6">
+            <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Metric name" value={newMetric.metricName} onChange={(event) => setNewMetric((current) => ({ ...current, metricName: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
+            <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newMetric.category} onChange={(event) => setNewMetric((current) => ({ ...current, category: (event.target as HTMLInputElement | HTMLSelectElement).value as MetricPoint["category"] }))}>
+              {METRIC_CATEGORIES.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+            <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newMetric.unit} onChange={(event) => setNewMetric((current) => ({ ...current, unit: (event.target as HTMLInputElement | HTMLSelectElement).value as MetricPoint["unit"] }))}>
+              {METRIC_UNITS.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+            <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Value" value={newMetric.value} onChange={(event) => setNewMetric((current) => ({ ...current, value: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
+            <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newMetric.date} onChange={(event) => setNewMetric((current) => ({ ...current, date: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
+            <Button onClick={async () => {
+              const value = Number(newMetric.value);
+              if (!Number.isFinite(value)) return;
+              const created = await saveCreate<MetricPoint>("/api/metrics", {
+                metricName: newMetric.metricName,
+                category: newMetric.category,
+                unit: newMetric.unit,
+                value,
+                date: newMetric.date,
+              });
+              if (!created) return;
+              setMetrics((current) => [created, ...current]);
+              setNewMetric((current) => ({ ...current, metricName: "", value: "" }));
+            }}>Add Metric</Button>
+          </div>
+
+          <div className="space-y-2">
+            {visibleMetrics.map((metric) => (
+              <article key={metric.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-6">
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={metric.metricName} onChange={(event) => setMetrics((current) => current.map((item) => item.id === metric.id ? { ...item, metricName: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
+                <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={metric.category} onChange={(event) => setMetrics((current) => current.map((item) => item.id === metric.id ? { ...item, category: (event.target as HTMLInputElement | HTMLSelectElement).value as MetricPoint["category"] } : item))}>
+                  {METRIC_CATEGORIES.map((value) => <option key={value} value={value}>{value}</option>)}
+                </select>
+                <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={metric.unit} onChange={(event) => setMetrics((current) => current.map((item) => item.id === metric.id ? { ...item, unit: (event.target as HTMLInputElement | HTMLSelectElement).value as MetricPoint["unit"] } : item))}>
+                  {METRIC_UNITS.map((value) => <option key={value} value={value}>{value}</option>)}
+                </select>
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(metric.value)} onChange={(event) => setMetrics((current) => current.map((item) => item.id === metric.id ? { ...item, value: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
+                <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(metric.date)} onChange={(event) => setMetrics((current) => current.map((item) => item.id === metric.id ? { ...item, date: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
+                <Button variant="ghost" onClick={async () => {
+                  const updated = await savePatch<MetricPoint>(`/api/metrics/${metric.id}`, {
+                    metricName: metric.metricName,
+                    category: metric.category,
+                    unit: metric.unit,
+                    value: metric.value,
+                    date: metric.date,
+                  });
+                  if (!updated) return;
+                  setMetrics((current) => current.map((item) => item.id === updated.id ? updated : item));
+                }}>Save</Button>
+              </article>
+            ))}
+          </div>
+        </DataStudioPanel>
       </section>
       ) : null}
 
@@ -1073,89 +1345,100 @@ export function DataStudioWorkspace({
             />
           ) : null}
           <span className="text-xs text-white/65">
-            {visibleFamilyEvents.length} events • {visibleRelationshipCheckins.length} check-ins
+            {visibleFamilyEvents.length} events
           </span>
         </div>
 
-        <div className="grid gap-2 md:grid-cols-7">
-          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Event title" value={newFamilyEvent.title} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, title: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
-          <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newFamilyEvent.date} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, date: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
-          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newFamilyEvent.category} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, category: (event.target as HTMLInputElement | HTMLSelectElement).value as FamilyEvent["category"] }))}>{FAMILY_CATEGORIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
-          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newFamilyEvent.importance} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, importance: (event.target as HTMLInputElement | HTMLSelectElement).value as FamilyEvent["importance"] }))}>{FAMILY_IMPORTANCE.map((value) => <option key={value} value={value}>{value}</option>)}</select>
-          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newFamilyEvent.entityId} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value }))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
-          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Notes" value={newFamilyEvent.notes} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, notes: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
-          <Button onClick={async () => {
-            const created = await saveCreate<FamilyEvent>("/api/family/events", {
-              title: newFamilyEvent.title,
-              date: newFamilyEvent.date,
-              category: newFamilyEvent.category,
-              importance: newFamilyEvent.importance,
-              entityId: newFamilyEvent.entityId || undefined,
-              notes: newFamilyEvent.notes || undefined,
-            });
-            if (!created) return;
-            setFamilyEvents((current) => [created, ...current]);
-            setNewFamilyEvent((current) => ({ ...current, title: "", notes: "" }));
-          }}>Add Event</Button>
-        </div>
+        <DataStudioPanel
+          title="Events"
+          summary="Use this as the main family workflow. Add birthdays, catchups, admin items, and anything tied to a person."
+          defaultOpen
+        >
+          <div className="grid gap-2 md:grid-cols-7">
+            <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Event title" value={newFamilyEvent.title} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, title: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
+            <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newFamilyEvent.date} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, date: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
+            <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newFamilyEvent.category} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, category: (event.target as HTMLInputElement | HTMLSelectElement).value as FamilyEvent["category"] }))}>{FAMILY_CATEGORIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+            <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newFamilyEvent.importance} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, importance: (event.target as HTMLInputElement | HTMLSelectElement).value as FamilyEvent["importance"] }))}>{FAMILY_IMPORTANCE.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+            <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newFamilyEvent.entityId} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value }))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+            <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Notes" value={newFamilyEvent.notes} onChange={(event) => setNewFamilyEvent((current) => ({ ...current, notes: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
+            <Button onClick={async () => {
+              const created = await saveCreate<FamilyEvent>("/api/family/events", {
+                title: newFamilyEvent.title,
+                date: newFamilyEvent.date,
+                category: newFamilyEvent.category,
+                importance: newFamilyEvent.importance,
+                entityId: newFamilyEvent.entityId || undefined,
+                notes: newFamilyEvent.notes || undefined,
+              });
+              if (!created) return;
+              setFamilyEvents((current) => [created, ...current]);
+              setNewFamilyEvent((current) => ({ ...current, title: "", notes: "" }));
+            }}>Add Event</Button>
+          </div>
 
-        <div className="space-y-2">
-          {visibleFamilyEvents.map((eventRow) => (
-            <article key={eventRow.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-7">
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={eventRow.title} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, title: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
-              <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(eventRow.date)} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, date: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
-              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={eventRow.category} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, category: (event.target as HTMLInputElement | HTMLSelectElement).value as FamilyEvent["category"] } : item))}>{FAMILY_CATEGORIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
-              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={eventRow.importance} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, importance: (event.target as HTMLInputElement | HTMLSelectElement).value as FamilyEvent["importance"] } : item))}>{FAMILY_IMPORTANCE.map((value) => <option key={value} value={value}>{value}</option>)}</select>
-              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={eventRow.entityId ?? ""} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value || undefined } : item))}><option value="">No entity</option>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={eventRow.notes ?? ""} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, notes: (event.target as HTMLInputElement | HTMLSelectElement).value || undefined } : item))} />
-              <Button variant="ghost" onClick={async () => {
-                const updated = await savePatch<FamilyEvent>(`/api/family/events/${eventRow.id}`, eventRow);
-                if (!updated) return;
-                setFamilyEvents((current) => current.map((item) => item.id === updated.id ? updated : item));
-              }}>Save</Button>
-            </article>
-          ))}
-        </div>
+          <div className="space-y-2">
+            {visibleFamilyEvents.map((eventRow) => (
+              <article key={eventRow.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-7">
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={eventRow.title} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, title: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
+                <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(eventRow.date)} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, date: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
+                <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={eventRow.category} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, category: (event.target as HTMLInputElement | HTMLSelectElement).value as FamilyEvent["category"] } : item))}>{FAMILY_CATEGORIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+                <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={eventRow.importance} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, importance: (event.target as HTMLInputElement | HTMLSelectElement).value as FamilyEvent["importance"] } : item))}>{FAMILY_IMPORTANCE.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+                <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={eventRow.entityId ?? ""} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value || undefined } : item))}><option value="">No entity</option>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={eventRow.notes ?? ""} onChange={(event) => setFamilyEvents((current) => current.map((item) => item.id === eventRow.id ? { ...item, notes: (event.target as HTMLInputElement | HTMLSelectElement).value || undefined } : item))} />
+                <Button variant="ghost" onClick={async () => {
+                  const updated = await savePatch<FamilyEvent>(`/api/family/events/${eventRow.id}`, eventRow);
+                  if (!updated) return;
+                  setFamilyEvents((current) => current.map((item) => item.id === updated.id ? updated : item));
+                }}>Save</Button>
+              </article>
+            ))}
+          </div>
+        </DataStudioPanel>
 
-        <div className="grid gap-2 md:grid-cols-7">
-          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Person" value={newCheckin.person} onChange={(event) => setNewCheckin((current) => ({ ...current, person: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
-          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newCheckin.relationType} onChange={(event) => setNewCheckin((current) => ({ ...current, relationType: (event.target as HTMLInputElement | HTMLSelectElement).value as RelationshipCheckin["relationType"] }))}>{RELATION_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
-          <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newCheckin.lastMeaningfulContact} onChange={(event) => setNewCheckin((current) => ({ ...current, lastMeaningfulContact: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
-          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Cadence days" value={newCheckin.targetCadenceDays} onChange={(event) => setNewCheckin((current) => ({ ...current, targetCadenceDays: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
-          <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newCheckin.entityId} onChange={(event) => setNewCheckin((current) => ({ ...current, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value }))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
-          <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Notes" value={newCheckin.notes} onChange={(event) => setNewCheckin((current) => ({ ...current, notes: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
-          <Button onClick={async () => {
-            const created = await saveCreate<RelationshipCheckin>("/api/family/checkins", {
-              person: newCheckin.person,
-              relationType: newCheckin.relationType,
-              lastMeaningfulContact: newCheckin.lastMeaningfulContact,
-              targetCadenceDays: Number(newCheckin.targetCadenceDays) || 7,
-              entityId: newCheckin.entityId || undefined,
-              notes: newCheckin.notes || undefined,
-            });
-            if (!created) return;
-            setRelationshipCheckins((current) => [created, ...current]);
-            setNewCheckin((current) => ({ ...current, person: "", notes: "" }));
-          }}>Add Check-in</Button>
-        </div>
+        <DataStudioPanel
+          title="People reminders"
+          summary="Optional separate cadence tracker. Ignore this if event entries are enough for your family workflow."
+        >
+          <div className="grid gap-2 md:grid-cols-7">
+            <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Person" value={newCheckin.person} onChange={(event) => setNewCheckin((current) => ({ ...current, person: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
+            <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newCheckin.relationType} onChange={(event) => setNewCheckin((current) => ({ ...current, relationType: (event.target as HTMLInputElement | HTMLSelectElement).value as RelationshipCheckin["relationType"] }))}>{RELATION_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+            <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newCheckin.lastMeaningfulContact} onChange={(event) => setNewCheckin((current) => ({ ...current, lastMeaningfulContact: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
+            <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Cadence days" value={newCheckin.targetCadenceDays} onChange={(event) => setNewCheckin((current) => ({ ...current, targetCadenceDays: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
+            <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newCheckin.entityId} onChange={(event) => setNewCheckin((current) => ({ ...current, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value }))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+            <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Notes" value={newCheckin.notes} onChange={(event) => setNewCheckin((current) => ({ ...current, notes: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
+            <Button onClick={async () => {
+              const created = await saveCreate<RelationshipCheckin>("/api/family/checkins", {
+                person: newCheckin.person,
+                relationType: newCheckin.relationType,
+                lastMeaningfulContact: newCheckin.lastMeaningfulContact,
+                targetCadenceDays: Number(newCheckin.targetCadenceDays) || 7,
+                entityId: newCheckin.entityId || undefined,
+                notes: newCheckin.notes || undefined,
+              });
+              if (!created) return;
+              setRelationshipCheckins((current) => [created, ...current]);
+              setNewCheckin((current) => ({ ...current, person: "", notes: "" }));
+            }}>Add Reminder</Button>
+          </div>
 
-        <div className="space-y-2">
-          {visibleRelationshipCheckins.map((checkin) => (
-            <article key={checkin.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-7">
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={checkin.person} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, person: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
-              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={checkin.relationType} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, relationType: (event.target as HTMLInputElement | HTMLSelectElement).value as RelationshipCheckin["relationType"] } : item))}>{RELATION_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
-              <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(checkin.lastMeaningfulContact)} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, lastMeaningfulContact: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(checkin.targetCadenceDays)} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, targetCadenceDays: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
-              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={checkin.entityId ?? ""} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value || undefined } : item))}><option value="">No entity</option>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={checkin.notes ?? ""} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, notes: (event.target as HTMLInputElement | HTMLSelectElement).value || undefined } : item))} />
-              <Button variant="ghost" onClick={async () => {
-                const updated = await savePatch<RelationshipCheckin>(`/api/family/checkins/${checkin.id}`, checkin);
-                if (!updated) return;
-                setRelationshipCheckins((current) => current.map((item) => item.id === updated.id ? updated : item));
-              }}>Save</Button>
-            </article>
-          ))}
-        </div>
+          <div className="space-y-2">
+            {visibleRelationshipCheckins.map((checkin) => (
+              <article key={checkin.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-7">
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={checkin.person} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, person: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
+                <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={checkin.relationType} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, relationType: (event.target as HTMLInputElement | HTMLSelectElement).value as RelationshipCheckin["relationType"] } : item))}>{RELATION_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+                <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(checkin.lastMeaningfulContact)} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, lastMeaningfulContact: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(checkin.targetCadenceDays)} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, targetCadenceDays: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
+                <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={checkin.entityId ?? ""} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value || undefined } : item))}><option value="">No entity</option>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={checkin.notes ?? ""} onChange={(event) => setRelationshipCheckins((current) => current.map((item) => item.id === checkin.id ? { ...item, notes: (event.target as HTMLInputElement | HTMLSelectElement).value || undefined } : item))} />
+                <Button variant="ghost" onClick={async () => {
+                  const updated = await savePatch<RelationshipCheckin>(`/api/family/checkins/${checkin.id}`, checkin);
+                  if (!updated) return;
+                  setRelationshipCheckins((current) => current.map((item) => item.id === updated.id ? updated : item));
+                }}>Save</Button>
+              </article>
+            ))}
+          </div>
+        </DataStudioPanel>
       </section>
       ) : null}
 

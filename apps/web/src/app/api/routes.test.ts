@@ -49,6 +49,7 @@ describe("web API routes", () => {
     const data = (await response.json()) as {
       topProjects: unknown[];
       nextTasks: unknown[];
+      financePulse: { last30Income: number; dueSoonCount: number };
       healthOverview: { workoutsThisWeek: number };
       familyOverview: { upcomingEvents: unknown[] };
       transitionOverview: { preSabbaticalPlans: unknown[] };
@@ -57,6 +58,8 @@ describe("web API routes", () => {
 
     expect(data.topProjects.length).toBeGreaterThan(0);
     expect(data.nextTasks.length).toBeGreaterThan(0);
+    expect(data.financePulse.last30Income).toBeGreaterThanOrEqual(0);
+    expect(data.financePulse.dueSoonCount).toBeGreaterThanOrEqual(0);
     expect(data.healthOverview.workoutsThisWeek).toBeGreaterThan(0);
     expect(data.familyOverview.upcomingEvents.length).toBeGreaterThan(0);
     expect(data.transitionOverview.preSabbaticalPlans.length).toBeGreaterThan(0);

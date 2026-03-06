@@ -66,7 +66,28 @@ describe("LosService mock mode", () => {
     expect(updated.monthsOfFreedom).toBeLessThan(initial.monthsOfFreedom);
   });
 
-  it("uses latest net worth metric for runway net worth", async () => {
+  it("derives net worth from total assets minus liabilities", async () => {
+    const runway = await service.getRunway();
+    expect(runway.totalAssets).toBe(1_800_000);
+    expect(runway.totalLiabilities).toBe(347_130);
+    expect(runway.netWorth).toBe(1_452_870);
+    expect(runway.liquidAssets).toBeGreaterThan(0);
+  });
+
+  it("builds the home finance pulse from transactions and upcoming bills", async () => {
+    const dashboard = await service.getHomeDashboard();
+
+    expect(dashboard.financePulse.last30Income).toBeGreaterThan(0);
+    expect(dashboard.financePulse.last30Expenses).toBeGreaterThan(0);
+    expect(dashboard.financePulse.dueSoonCount).toBeGreaterThan(0);
+    expect(dashboard.financePulse.liabilityRatioPercent).toBeGreaterThan(0);
+  });
+
+  it("falls back to legacy net worth metric when balance sheet metrics are missing", async () => {
+    memoryStore.get().metrics = memoryStore
+      .get()
+      .metrics.filter((metric) => !["Total Assets", "Total Liabilities"].includes(metric.metricName));
+
     memoryStore.get().metrics.push({
       id: "metric_networth_override",
       metricName: "Net Worth",
@@ -78,7 +99,6 @@ describe("LosService mock mode", () => {
 
     const runway = await service.getRunway();
     expect(runway.netWorth).toBe(512_345);
-    expect(runway.liquidAssets).toBeGreaterThan(0);
   });
 
   it("builds health overview with weekly aggregates", async () => {
