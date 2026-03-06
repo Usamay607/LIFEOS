@@ -104,7 +104,6 @@ export interface UpcomingExpense {
   dueDate: string;
   frequency: "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY" | "ONE_OFF";
   entityId: Id;
-  paid: boolean;
 }
 
 export interface MetricPoint {
@@ -127,11 +126,31 @@ export const FINANCE_METRIC_NAMES = {
 
 export type FinanceMetricKey = keyof typeof FINANCE_METRIC_NAMES;
 
+export const FINANCE_BUCKET_METRIC_NAMES = {
+  emergencyBuffer: "Emergency Buffer",
+  billsBuffer: "Bills Buffer",
+  spendBuffer: "Spend Buffer",
+} as const;
+
+export type FinanceBucketKey = keyof typeof FINANCE_BUCKET_METRIC_NAMES;
+
 export interface FinanceMetricSnapshot {
   totalAssets: number;
   totalLiabilities: number;
   liquidAssets: number;
   netWorth: number;
+}
+
+export interface FinancialBucket {
+  key: FinanceBucketKey;
+  label: string;
+  amount: number;
+}
+
+export interface FinancialBucketSnapshot {
+  buckets: FinancialBucket[];
+  reservedCashTotal: number;
+  availableRunwayCash: number;
 }
 
 export type BurnBasis = "LAST_7_DAYS" | "LAST_30_DAYS" | "LAST_90_DAYS" | "CURRENT_MONTH";
@@ -141,7 +160,10 @@ export interface BurnScenario {
   label: string;
   periodLabel: string;
   totalExpenses: number;
+  actualMonthlyEquivalent: number;
   monthlyEquivalent: number;
+  fixedCommitmentsFloor: number;
+  floorApplied: boolean;
   runwayMonths: number;
 }
 
@@ -168,6 +190,12 @@ const FINANCE_METRIC_ALIASES: Record<FinanceMetricKey, string[]> = {
   netWorth: ["net worth"],
 };
 
+const FINANCE_BUCKET_METRIC_ALIASES: Record<FinanceBucketKey, string[]> = {
+  emergencyBuffer: ["emergency buffer", "emergency fund", "emergency reserve"],
+  billsBuffer: ["bills buffer", "bill buffer", "bills reserve", "bill reserve"],
+  spendBuffer: ["spend buffer", "spending buffer", "spend reserve", "spending reserve"],
+};
+
 function roundFinanceValue(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
@@ -180,6 +208,18 @@ export function getFinanceMetricKey(metricName: string): FinanceMetricKey | null
   const normalized = normalizeMetricName(metricName);
 
   for (const [key, aliases] of Object.entries(FINANCE_METRIC_ALIASES) as Array<[FinanceMetricKey, string[]]>) {
+    if (aliases.includes(normalized)) {
+      return key;
+    }
+  }
+
+  return null;
+}
+
+export function getFinanceBucketKey(metricName: string): FinanceBucketKey | null {
+  const normalized = normalizeMetricName(metricName);
+
+  for (const [key, aliases] of Object.entries(FINANCE_BUCKET_METRIC_ALIASES) as Array<[FinanceBucketKey, string[]]>) {
     if (aliases.includes(normalized)) {
       return key;
     }
@@ -213,6 +253,109 @@ export function deriveFinanceMetricSnapshot(metrics: MetricPoint[]): FinanceMetr
     liquidAssets: roundFinanceValue(liquidAssets),
     netWorth: roundFinanceValue(netWorth),
   };
+}
+
+export function deriveFinancialBucketSnapshot(metrics: MetricPoint[], liquidAssets: number): FinancialBucketSnapshot {
+  const latestByKey = new Map<FinanceBucketKey, MetricPoint>();
+  const sorted = [...metrics].sort((left, right) => right.date.localeCompare(left.date));
+
+  for (const metric of sorted) {
+    const key = getFinanceBucketKey(metric.metricName);
+    if (!key || latestByKey.has(key)) {
+      continue;
+    }
+    latestByKey.set(key, metric);
+  }
+
+  const buckets = (Object.keys(FINANCE_BUCKET_METRIC_NAMES) as FinanceBucketKey[]).map((key) => ({
+    key,
+    label: FINANCE_BUCKET_METRIC_NAMES[key],
+    amount: roundFinanceValue(latestByKey.get(key)?.value ?? 0),
+  }));
+  const reservedCashTotal = roundFinanceValue(sumMoney(buckets.map((bucket) => bucket.amount)));
+  const availableRunwayCash = roundFinanceValue(Math.max(0, liquidAssets - reservedCashTotal));
+
+  return {
+    buckets,
+    reservedCashTotal,
+    availableRunwayCash,
+  };
+}
+
+function addExpenseFrequency(date: Date, frequency: UpcomingExpense["frequency"]): Date {
+  const next = new Date(date.getTime());
+
+  switch (frequency) {
+    case "WEEKLY":
+      next.setDate(next.getDate() + 7);
+      break;
+    case "MONTHLY":
+      next.setMonth(next.getMonth() + 1);
+      break;
+    case "QUARTERLY":
+      next.setMonth(next.getMonth() + 3);
+      break;
+    case "YEARLY":
+      next.setFullYear(next.getFullYear() + 1);
+      break;
+    case "ONE_OFF":
+      break;
+  }
+
+  return next;
+}
+
+export function normalizeUpcomingExpense(expense: UpcomingExpense, now = Date.now()): UpcomingExpense {
+  if (expense.frequency === "ONE_OFF") {
+    return expense;
+  }
+
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  const nextDueDate = new Date(expense.dueDate);
+  nextDueDate.setHours(0, 0, 0, 0);
+
+  while (nextDueDate.getTime() < today.getTime()) {
+    const next = addExpenseFrequency(nextDueDate, expense.frequency);
+    nextDueDate.setTime(next.getTime());
+  }
+
+  return {
+    ...expense,
+    dueDate: nextDueDate.toISOString(),
+  };
+}
+
+export function isActiveUpcomingExpense(expense: UpcomingExpense, now = Date.now()): boolean {
+  const normalized = normalizeUpcomingExpense(expense, now);
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  const dueDate = new Date(normalized.dueDate);
+  dueDate.setHours(0, 0, 0, 0);
+  return dueDate.getTime() >= today.getTime();
+}
+
+export function deriveMonthlyCommittedBills(upcomingExpenses: UpcomingExpense[], now = Date.now()): number {
+  const recurringExpenses = upcomingExpenses
+    .map((expense) => normalizeUpcomingExpense(expense, now))
+    .filter((expense) => expense.frequency !== "ONE_OFF");
+
+  const monthlyEquivalent = recurringExpenses.reduce((total, expense) => {
+    switch (expense.frequency) {
+      case "WEEKLY":
+        return total + (expense.amount * 52) / 12;
+      case "MONTHLY":
+        return total + expense.amount;
+      case "QUARTERLY":
+        return total + expense.amount / 3;
+      case "YEARLY":
+        return total + expense.amount / 12;
+      case "ONE_OFF":
+        return total;
+    }
+  }, 0);
+
+  return roundFinanceValue(monthlyEquivalent);
 }
 
 function sumMoney(values: number[]): number {
@@ -276,29 +419,39 @@ function buildBurnScenario(
   label: string,
   periodLabel: string,
   totalExpenses: number,
-  monthlyEquivalent: number,
-  liquidAssets: number,
+  actualMonthlyEquivalent: number,
+  fixedCommitmentsFloor: number,
+  availableRunwayCash: number,
 ): BurnScenario {
-  const normalizedMonthlyEquivalent = roundFinanceValue(monthlyEquivalent);
+  const normalizedActualMonthlyEquivalent = roundFinanceValue(actualMonthlyEquivalent);
+  const normalizedFixedCommitmentsFloor = roundFinanceValue(fixedCommitmentsFloor);
+  const normalizedMonthlyEquivalent = roundFinanceValue(
+    Math.max(normalizedActualMonthlyEquivalent, normalizedFixedCommitmentsFloor),
+  );
   return {
     basis,
     label,
     periodLabel,
     totalExpenses: roundFinanceValue(totalExpenses),
+    actualMonthlyEquivalent: normalizedActualMonthlyEquivalent,
     monthlyEquivalent: normalizedMonthlyEquivalent,
+    fixedCommitmentsFloor: normalizedFixedCommitmentsFloor,
+    floorApplied: normalizedFixedCommitmentsFloor > normalizedActualMonthlyEquivalent,
     runwayMonths:
-      normalizedMonthlyEquivalent > 0 ? roundFinanceValue(liquidAssets / normalizedMonthlyEquivalent) : 0,
+      normalizedMonthlyEquivalent > 0 ? roundFinanceValue(availableRunwayCash / normalizedMonthlyEquivalent) : 0,
   };
 }
 
 export function deriveBurnScenarios({
   transactions,
-  liquidAssets,
+  availableRunwayCash,
+  fixedCommitmentsFloor = 0,
   now = Date.now(),
   timeZone = "Australia/Melbourne",
 }: {
   transactions: Transaction[];
-  liquidAssets: number;
+  availableRunwayCash: number;
+  fixedCommitmentsFloor?: number;
   now?: number;
   timeZone?: string;
 }): BurnScenario[] {
@@ -326,16 +479,41 @@ export function deriveBurnScenarios({
     nowParts.day > 0 ? (currentMonthExpenses / nowParts.day) * daysInCurrentMonth : currentMonthExpenses;
 
   return [
-    buildBurnScenario("LAST_7_DAYS", "7d spend", "Last 7 days", last7Expenses, (last7Expenses / 7) * 30, liquidAssets),
-    buildBurnScenario("LAST_30_DAYS", "30d spend", "Last 30 days", last30Expenses, last30Expenses, liquidAssets),
-    buildBurnScenario("LAST_90_DAYS", "90d avg burn", "Last 90 days", last90Expenses, last90Expenses / 3, liquidAssets),
+    buildBurnScenario(
+      "LAST_7_DAYS",
+      "7d spend",
+      "Last 7 days",
+      last7Expenses,
+      (last7Expenses / 7) * 30,
+      fixedCommitmentsFloor,
+      availableRunwayCash,
+    ),
+    buildBurnScenario(
+      "LAST_30_DAYS",
+      "30d spend",
+      "Last 30 days",
+      last30Expenses,
+      last30Expenses,
+      fixedCommitmentsFloor,
+      availableRunwayCash,
+    ),
+    buildBurnScenario(
+      "LAST_90_DAYS",
+      "90d avg burn",
+      "Last 90 days",
+      last90Expenses,
+      last90Expenses / 3,
+      fixedCommitmentsFloor,
+      availableRunwayCash,
+    ),
     buildBurnScenario(
       "CURRENT_MONTH",
       "Month projection",
       `${nowParts.day}/${daysInCurrentMonth} days this month`,
       currentMonthExpenses,
       currentMonthProjected,
-      liquidAssets,
+      fixedCommitmentsFloor,
+      availableRunwayCash,
     ),
   ];
 }
@@ -343,7 +521,8 @@ export function deriveBurnScenarios({
 export function deriveFinancePulse({
   transactions,
   upcomingExpenses,
-  liquidAssets,
+  availableRunwayCash,
+  reservedCashTotal,
   totalAssets,
   totalLiabilities,
   entities = [],
@@ -352,7 +531,8 @@ export function deriveFinancePulse({
 }: {
   transactions: Transaction[];
   upcomingExpenses: UpcomingExpense[];
-  liquidAssets: number;
+  availableRunwayCash: number;
+  reservedCashTotal: number;
   totalAssets: number;
   totalLiabilities: number;
   entities?: Entity[];
@@ -365,7 +545,15 @@ export function deriveFinancePulse({
   const last90Expenses = transactions.filter(
     (transaction) => transaction.type === "EXPENSE" && parseTimestamp(transaction.date) >= last90Start,
   );
-  const scenarios = deriveBurnScenarios({ transactions, liquidAssets, now, timeZone });
+  const normalizedUpcomingExpenses = upcomingExpenses.map((expense) => normalizeUpcomingExpense(expense, now));
+  const monthlyCommittedBills = deriveMonthlyCommittedBills(normalizedUpcomingExpenses, now);
+  const scenarios = deriveBurnScenarios({
+    transactions,
+    availableRunwayCash,
+    fixedCommitmentsFloor: monthlyCommittedBills,
+    now,
+    timeZone,
+  });
   const currentMonthKey = getMonthKey(new Date(now), timeZone);
   const previousMonthKey = shiftMonthKey(currentMonthKey, -1);
 
@@ -468,8 +656,7 @@ export function deriveFinancePulse({
       sharePercent: totalLast90Expenses > 0 ? roundFinanceValue((total / totalLast90Expenses) * 100) : 0,
     }));
 
-  const dueSoon = upcomingExpenses.filter((expense) => {
-    if (expense.paid) return false;
+  const dueSoon = normalizedUpcomingExpenses.filter((expense) => {
     const dueMs = parseTimestamp(expense.dueDate);
     return dueMs >= now - 86_400_000 && dueMs <= now + 14 * 86_400_000;
   });
@@ -493,6 +680,9 @@ export function deriveFinancePulse({
     liabilityRatioPercent: totalAssets > 0 ? roundFinanceValue((totalLiabilities / totalAssets) * 100) : 0,
     currentMonthExpenses: roundFinanceValue(currentMonthExpenses),
     previousMonthExpenses: roundFinanceValue(previousMonthExpenses),
+    monthlyCommittedBills,
+    reservedCashTotal: roundFinanceValue(reservedCashTotal),
+    availableRunwayCash: roundFinanceValue(availableRunwayCash),
     scenarios,
     weeklyTrend,
     monthlyTrend,
@@ -646,6 +836,10 @@ export interface RunwayResult {
   totalAssets: number;
   totalLiabilities: number;
   liquidAssets: number;
+  reservedCashTotal: number;
+  availableRunwayCash: number;
+  monthlyCommittedBills: number;
+  buckets: FinancialBucket[];
   monthlyBurn: number;
   monthsOfFreedom: number;
 }
@@ -660,6 +854,9 @@ export interface FinancePulse {
   liabilityRatioPercent: number;
   currentMonthExpenses: number;
   previousMonthExpenses: number;
+  monthlyCommittedBills: number;
+  reservedCashTotal: number;
+  availableRunwayCash: number;
   scenarios: BurnScenario[];
   weeklyTrend: FinanceTrendPoint[];
   monthlyTrend: FinanceTrendPoint[];
@@ -931,7 +1128,6 @@ export interface CreateUpcomingExpenseInput {
   dueDate: string;
   frequency: UpcomingExpense["frequency"];
   entityId: Id;
-  paid?: boolean;
 }
 
 export interface UpdateUpcomingExpenseInput {
@@ -940,7 +1136,6 @@ export interface UpdateUpcomingExpenseInput {
   dueDate?: string;
   frequency?: UpcomingExpense["frequency"];
   entityId?: Id;
-  paid?: boolean;
 }
 
 export interface CreateMetricInput {

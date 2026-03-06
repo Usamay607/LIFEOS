@@ -237,7 +237,6 @@ export const STARTER_UPCOMING_EXPENSES: UpcomingExpense[] = [
     dueDate: iso(4),
     frequency: "MONTHLY",
     entityId: "ent_personal",
-    paid: false,
   },
   {
     id: "bill_2",
@@ -246,7 +245,6 @@ export const STARTER_UPCOMING_EXPENSES: UpcomingExpense[] = [
     dueDate: iso(7),
     frequency: "MONTHLY",
     entityId: "ent_portmans",
-    paid: false,
   },
   {
     id: "bill_3",
@@ -255,7 +253,6 @@ export const STARTER_UPCOMING_EXPENSES: UpcomingExpense[] = [
     dueDate: iso(2),
     frequency: "MONTHLY",
     entityId: "ent_los",
-    paid: false,
   },
 ];
 
@@ -283,6 +280,33 @@ export const STARTER_METRICS: MetricPoint[] = [
     metricName: "Total Liabilities",
     category: "FINANCE",
     value: 347_130,
+    unit: "AUD",
+    date: iso(-1),
+    entityId: "ent_personal",
+  },
+  {
+    id: "met_4",
+    metricName: "Emergency Buffer",
+    category: "FINANCE",
+    value: 20_000,
+    unit: "AUD",
+    date: iso(-1),
+    entityId: "ent_personal",
+  },
+  {
+    id: "met_5",
+    metricName: "Bills Buffer",
+    category: "FINANCE",
+    value: 4_500,
+    unit: "AUD",
+    date: iso(-1),
+    entityId: "ent_personal",
+  },
+  {
+    id: "met_6",
+    metricName: "Spend Buffer",
+    category: "FINANCE",
+    value: 2_500,
     unit: "AUD",
     date: iso(-1),
     entityId: "ent_personal",

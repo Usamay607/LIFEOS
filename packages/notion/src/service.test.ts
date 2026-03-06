@@ -74,6 +74,9 @@ describe("LosService mock mode", () => {
     expect(runway.totalLiabilities).toBe(347_130);
     expect(runway.netWorth).toBe(1_452_870);
     expect(runway.liquidAssets).toBeGreaterThan(0);
+    expect(runway.reservedCashTotal).toBe(27_000);
+    expect(runway.availableRunwayCash).toBe(runway.liquidAssets - runway.reservedCashTotal);
+    expect(runway.monthlyCommittedBills).toBeGreaterThan(0);
   });
 
   it("builds the home finance pulse from transactions and upcoming bills", async () => {
@@ -83,25 +86,28 @@ describe("LosService mock mode", () => {
     expect(dashboard.financePulse.last30Expenses).toBeGreaterThan(0);
     expect(dashboard.financePulse.dueSoonCount).toBeGreaterThan(0);
     expect(dashboard.financePulse.liabilityRatioPercent).toBeGreaterThan(0);
+    expect(dashboard.financePulse.monthlyCommittedBills).toBeGreaterThan(0);
+    expect(dashboard.financePulse.availableRunwayCash).toBeGreaterThan(0);
     expect(dashboard.financePulse.scenarios).toHaveLength(4);
     expect(dashboard.financePulse.weeklyTrend.length).toBeGreaterThan(0);
     expect(dashboard.financePulse.monthlyTrend.length).toBeGreaterThan(0);
   });
 
-  it("creates a matching transaction when an upcoming expense is marked paid", async () => {
-    const beforeCount = (await service.listTransactions()).length;
-    const expense = (await service.listUpcomingExpenses(true))[0];
-    expect(expense).toBeDefined();
-    expect(expense?.paid).toBe(false);
+  it("rolls overdue recurring bills forward instead of requiring paid state", async () => {
+    memoryStore.get().upcomingExpenses.push({
+      id: "bill_roll_forward",
+      bill: "Weekly audit bill",
+      amount: 55,
+      dueDate: new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString(),
+      frequency: "WEEKLY",
+      entityId: "ent_personal",
+    });
 
-    const updated = await service.updateUpcomingExpense(expense!.id, { paid: true });
-    const afterTransactions = await service.listTransactions();
-    const autoTransaction = afterTransactions.find((transaction) => transaction.notes?.includes(`AUTO_UPCOMING_EXPENSE:${updated.id}`));
+    const activeBills = await service.listUpcomingExpenses();
+    const rolledBill = activeBills.find((expense) => expense.id === "bill_roll_forward");
 
-    expect(updated.paid).toBe(true);
-    expect(afterTransactions.length).toBe(beforeCount + 1);
-    expect(autoTransaction?.amount).toBe(updated.amount);
-    expect(autoTransaction?.category).toBe(updated.bill);
+    expect(rolledBill).toBeDefined();
+    expect(new Date(rolledBill!.dueDate).getTime()).toBeGreaterThanOrEqual(Date.now() - 24 * 60 * 60 * 1000);
   });
 
   it("falls back to legacy net worth metric when balance sheet metrics are missing", async () => {

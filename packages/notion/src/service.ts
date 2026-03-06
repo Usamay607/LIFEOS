@@ -66,7 +66,15 @@ import type {
   WorkoutSession,
   RelationshipCheckin,
 } from "@los/types";
-import { deriveBurnScenarios, deriveFinanceMetricSnapshot, deriveFinancePulse } from "@los/types";
+import {
+  deriveBurnScenarios,
+  deriveFinanceMetricSnapshot,
+  deriveFinancePulse,
+  deriveFinancialBucketSnapshot,
+  deriveMonthlyCommittedBills,
+  isActiveUpcomingExpense,
+  normalizeUpcomingExpense,
+} from "@los/types";
 import { loadLosEnv, type LosEnv } from "./env";
 import { memoryStore } from "./memory-store";
 import {
@@ -231,7 +239,7 @@ export class LosService {
       this.listTasks(),
       this.getRunway(),
       this.listTransactions(),
-      this.listUpcomingExpenses(true),
+      this.listUpcomingExpenses(),
       this.listEntities(),
       this.getHealthOverview(),
       this.getFamilyOverview(),
@@ -254,7 +262,6 @@ export class LosService {
       .slice(0, 5);
 
     const upcomingExpenses = allUpcomingExpenses
-      .filter((expense) => !expense.paid)
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
       .slice(0, 5);
 
@@ -266,7 +273,8 @@ export class LosService {
       financePulse: deriveFinancePulse({
         transactions: allTransactions,
         upcomingExpenses: allUpcomingExpenses,
-        liquidAssets: runway.liquidAssets,
+        availableRunwayCash: runway.availableRunwayCash,
+        reservedCashTotal: runway.reservedCashTotal,
         totalAssets: runway.totalAssets,
         totalLiabilities: runway.totalLiabilities,
         entities,
@@ -975,30 +983,28 @@ export class LosService {
     return response.map(mapNotionPageToTransaction).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
   }
 
-  async listUpcomingExpenses(includePaid = false): Promise<UpcomingExpense[]> {
+  async listUpcomingExpenses(includeAll = false): Promise<UpcomingExpense[]> {
+    const now = Date.now();
+
     if (!this.notion) {
       const rows = memoryStore
         .get()
-        .upcomingExpenses.filter((expense) => (includePaid ? true : !expense.paid))
+        .upcomingExpenses
+        .map((expense) => normalizeUpcomingExpense(expense, now))
+        .filter((expense) => (includeAll ? true : isActiveUpcomingExpense(expense, now)))
         .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-      return includePaid ? rows : rows.slice(0, 5);
+      return rows;
     }
 
     const dbId = this.requireDatabaseId("upcomingExpenses");
-    const response = await this.queryAllPages(
-      dbId,
-      includePaid
-        ? undefined
-        : {
-            property: "paid",
-            checkbox: { equals: false },
-          },
-    );
+    const response = await this.queryAllPages(dbId);
 
     const rows = response
       .map(mapNotionPageToUpcomingExpense)
+      .map((expense) => normalizeUpcomingExpense(expense, now))
+      .filter((expense) => (includeAll ? true : isActiveUpcomingExpense(expense, now)))
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-    return includePaid ? rows : rows.slice(0, 5);
+    return rows;
   }
 
   async getUpcomingExpenseReminders(windowDays = 14): Promise<UpcomingExpenseReminderResponse> {
@@ -1168,16 +1174,24 @@ export class LosService {
   }
 
   async getRunway(): Promise<RunwayResult> {
-    const [metrics, transactions] = await Promise.all([this.listMetrics(), this.listTransactions()]);
+    const [metrics, transactions, upcomingExpenses] = await Promise.all([
+      this.listMetrics(),
+      this.listTransactions(),
+      this.listUpcomingExpenses(true),
+    ]);
     const financeSnapshot = deriveFinanceMetricSnapshot(metrics);
     const { totalAssets, totalLiabilities, liquidAssets, netWorth } = financeSnapshot;
+    const bucketSnapshot = deriveFinancialBucketSnapshot(metrics, liquidAssets);
+    const monthlyCommittedBills = deriveMonthlyCommittedBills(upcomingExpenses);
     const defaultScenario = deriveBurnScenarios({
       transactions,
-      liquidAssets,
+      availableRunwayCash: bucketSnapshot.availableRunwayCash,
+      fixedCommitmentsFloor: monthlyCommittedBills,
       timeZone: this.env.timezone,
     }).find((scenario) => scenario.basis === "LAST_90_DAYS");
     const monthlyBurn = defaultScenario?.monthlyEquivalent ?? 0;
-    const monthsOfFreedom = monthlyBurn > 0 ? round2(liquidAssets / monthlyBurn) : 0;
+    const monthsOfFreedom =
+      monthlyBurn > 0 ? round2(bucketSnapshot.availableRunwayCash / monthlyBurn) : 0;
 
     return {
       burnBasis: "LAST_90_DAYS",
@@ -1186,6 +1200,10 @@ export class LosService {
       totalAssets: round2(totalAssets),
       totalLiabilities: round2(totalLiabilities),
       liquidAssets: round2(liquidAssets),
+      reservedCashTotal: round2(bucketSnapshot.reservedCashTotal),
+      availableRunwayCash: round2(bucketSnapshot.availableRunwayCash),
+      monthlyCommittedBills: round2(monthlyCommittedBills),
+      buckets: bucketSnapshot.buckets,
       monthlyBurn,
       monthsOfFreedom,
     };
@@ -2153,7 +2171,6 @@ export class LosService {
         dueDate: toIso(input.dueDate) ?? new Date().toISOString(),
         frequency: input.frequency,
         entityId: input.entityId,
-        paid: input.paid ?? false,
       };
       snapshot.upcomingExpenses.unshift(expense);
       return expense;
@@ -2167,7 +2184,6 @@ export class LosService {
         due_date: { date: { start: input.dueDate } },
         frequency: { select: { name: input.frequency } },
         entity: { relation: [{ id: input.entityId }] },
-        paid: { checkbox: input.paid ?? false },
       },
     })) as any;
 
@@ -2193,53 +2209,18 @@ export class LosService {
         dueDate: input.dueDate !== undefined ? toIso(input.dueDate) ?? existing.dueDate : existing.dueDate,
       };
       snapshot.upcomingExpenses[index] = updated;
-      await this.syncPaidUpcomingExpenseToTransaction(existing, updated);
       return updated;
     }
 
-    const existing = await this.getUpcomingExpenseById(id);
     const properties: Record<string, unknown> = {};
     if (input.bill !== undefined) properties.bill = titleProperty(input.bill.trim() || "Expense");
     if (input.amount !== undefined) properties.amount = { number: Number(input.amount) };
     if (input.dueDate !== undefined) properties.due_date = input.dueDate ? { date: { start: input.dueDate } } : { date: null };
     if (input.frequency !== undefined) properties.frequency = { select: { name: input.frequency } };
     if (input.entityId !== undefined) properties.entity = { relation: input.entityId ? [{ id: input.entityId }] : [] };
-    if (input.paid !== undefined) properties.paid = { checkbox: input.paid };
 
     const page = (await (this.notion as any).pages.update({ page_id: id, properties })) as any;
-    const updated = mapNotionPageToUpcomingExpense(page);
-    await this.syncPaidUpcomingExpenseToTransaction(existing, updated);
-    return updated;
-  }
-
-  private async getUpcomingExpenseById(id: string): Promise<UpcomingExpense> {
-    const expenses = await this.listUpcomingExpenses(true);
-    const existing = expenses.find((expense) => expense.id === id);
-    if (!existing) {
-      throw new Error(`Upcoming expense not found: ${id}`);
-    }
-    return existing;
-  }
-
-  private async syncPaidUpcomingExpenseToTransaction(previous: UpcomingExpense, current: UpcomingExpense): Promise<void> {
-    if (previous.paid || !current.paid) {
-      return;
-    }
-
-    const marker = `AUTO_UPCOMING_EXPENSE:${current.id}`;
-    const existingTransactions = await this.listTransactions();
-    if (existingTransactions.some((transaction) => transaction.notes?.includes(marker))) {
-      return;
-    }
-
-    await this.createTransaction({
-      date: new Date().toISOString().slice(0, 10),
-      amount: current.amount,
-      type: "EXPENSE",
-      entityId: current.entityId,
-      category: current.bill,
-      notes: marker,
-    });
+    return mapNotionPageToUpcomingExpense(page);
   }
 
   private async getSnapshot(): Promise<LosDataSnapshot> {

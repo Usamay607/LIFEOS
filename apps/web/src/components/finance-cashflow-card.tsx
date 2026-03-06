@@ -1,6 +1,7 @@
 import type { HomeDashboardData } from "@los/types";
 import { compactCurrencyFormatter, currencyFormatter, daysUntil, formatDate } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SpendWheel } from "@/components/spend-wheel";
 
 interface FinanceCardProps {
   data: HomeDashboardData;
@@ -54,7 +55,7 @@ export function FinanceCashflowCard({ data }: FinanceCardProps) {
       <CardHeader>
         <div>
           <CardTitle>Finances</CardTitle>
-          <p className="mt-1 text-xs text-white/60">Driven by your balance sheet, transactions, and upcoming bills.</p>
+          <p className="mt-1 text-xs text-white/60">Net worth, runway cash, bills, and burn all come from the same saved finance data.</p>
         </div>
         <div className="flex items-center gap-2 text-xs text-white/70">
           <span className="rounded-md bg-white/10 px-2 py-1">AUD</span>
@@ -62,7 +63,7 @@ export function FinanceCashflowCard({ data }: FinanceCardProps) {
       </CardHeader>
 
       <CardContent>
-        <div className="grid gap-4 rounded-2xl border border-white/10 bg-slate-900/40 p-4 md:grid-cols-3">
+        <div className="grid gap-4 rounded-2xl border border-white/10 bg-slate-900/40 p-4 md:grid-cols-5">
           <div>
             <p className="text-xs uppercase tracking-[0.08em] text-white/65">Current Net Worth</p>
             <p className="mt-1 text-3xl font-semibold text-emerald-300">{currencyFormatter.format(data.runway.netWorth)}</p>
@@ -71,8 +72,17 @@ export function FinanceCashflowCard({ data }: FinanceCardProps) {
             </p>
           </div>
           <div>
-            <p className="text-xs uppercase tracking-[0.08em] text-white/65">Liquid Assets</p>
+            <p className="text-xs uppercase tracking-[0.08em] text-white/65">Liquid Cash</p>
             <p className="mt-1 text-xl font-medium text-emerald-200">{currencyFormatter.format(data.runway.liquidAssets)}</p>
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-[0.08em] text-white/65">Protected Cash</p>
+            <p className="mt-1 text-xl font-medium text-amber-200">{currencyFormatter.format(data.runway.reservedCashTotal)}</p>
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-[0.08em] text-white/65">Runway Cash</p>
+            <p className="mt-1 text-xl font-medium text-cyan-200">{currencyFormatter.format(data.runway.availableRunwayCash)}</p>
+            <p className="mt-1 text-xs text-white/55">{data.runway.buckets.length} cash buckets reserved</p>
           </div>
           <div>
             <p className="text-xs uppercase tracking-[0.08em] text-white/65">Months of Freedom</p>
@@ -82,38 +92,38 @@ export function FinanceCashflowCard({ data }: FinanceCardProps) {
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-2xl border border-emerald-300/20 bg-slate-950/40 p-4">
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.08em] text-white/70">Burn snapshot</p>
-                <p className="mt-1 text-sm text-white/60">
-                  90d categories and runway scenarios update from the same saved finance entries.
-                </p>
-              </div>
-            </div>
-            <div className="space-y-3">
-              {burnRows.map((row) => {
-                const width = Math.max(18, Math.round((Math.abs(row.value) / burnScaleBase) * 100));
-                return (
-                <div key={row.label}>
-                  <div className="mb-1 flex justify-between text-xs text-white/75">
-                    <span>{row.label}</span>
-                    <span>
-                      {compactCurrencyFormatter.format(row.value)} · {row.meta}
-                    </span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                    <div
-                      className={`h-full rounded-full ${row.tone}`}
-                      style={{ width: `${width}%` }}
-                    />
-                  </div>
-                </div>
-              )})}
-            </div>
-          </div>
+          <SpendWheel items={data.financePulse.topExpenseCategories} />
 
           <div className="grid gap-4">
+            <div className="rounded-2xl border border-emerald-300/20 bg-slate-950/40 p-4">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.08em] text-white/70">Burn snapshot</p>
+                  <p className="mt-1 text-sm text-white/60">
+                    Each scenario uses spendable runway cash and never drops below your recurring bills floor.
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {burnRows.map((row) => {
+                  const width = Math.max(18, Math.round((Math.abs(row.value) / burnScaleBase) * 100));
+                  return (
+                    <div key={row.label}>
+                      <div className="mb-1 flex justify-between text-xs text-white/75">
+                        <span>{row.label}</span>
+                        <span>
+                          {compactCurrencyFormatter.format(row.value)} · {row.meta}
+                        </span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                        <div className={`h-full rounded-full ${row.tone}`} style={{ width: `${width}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
               <p className="mb-2 text-xs uppercase tracking-[0.08em] text-white/70">Cashflow markers</p>
               {financeRows.length > 0 ? (
@@ -160,6 +170,9 @@ export function FinanceCashflowCard({ data }: FinanceCardProps) {
 
             <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
               <p className="mb-2 text-xs uppercase tracking-[0.08em] text-white/70">Upcoming Bills</p>
+              <p className="mb-3 text-xs text-white/55">
+                Recurring bills roll forward automatically. Monthly commitments floor: {compactCurrencyFormatter.format(data.runway.monthlyCommittedBills)}
+              </p>
               {data.upcomingExpenses.length > 0 ? (
                 <div className="space-y-2 text-sm">
                   {data.upcomingExpenses.slice(0, 3).map((expense) => {

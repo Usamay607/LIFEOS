@@ -111,7 +111,6 @@ export function mapNotionPageToUpcomingExpense(page: NotionPage): UpcomingExpens
     dueDate: fromDate(page, "due_date") ?? new Date().toISOString(),
     frequency: (fromSelect(page, "frequency") as UpcomingExpense["frequency"]) || "MONTHLY",
     entityId: fromRelationIds(page, "entity")[0] ?? "",
-    paid: fromCheckbox(page, "paid"),
   };
 }
 

@@ -193,7 +193,7 @@ async function run() {
         due_date: { date: { start: expense.dueDate } },
         frequency: { select: { name: expense.frequency } },
         entity: { relation: [{ id: entityMap.get(expense.entityId)! }] },
-        paid: { checkbox: expense.paid },
+        paid: { checkbox: false },
       },
     });
   }

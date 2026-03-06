@@ -4,8 +4,11 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
   deriveFinancePulse,
+  deriveFinancialBucketSnapshot,
   deriveFinanceMetricSnapshot,
+  FINANCE_BUCKET_METRIC_NAMES,
   FINANCE_METRIC_NAMES,
+  getFinanceBucketKey,
   getFinanceMetricKey,
 } from "@los/types";
 import type {
@@ -75,6 +78,15 @@ function toDateInput(value?: string): string {
   return value.slice(0, 10);
 }
 
+function toMonthInput(value?: string): string {
+  if (!value) return "";
+  return value.slice(0, 7);
+}
+
+function isInMonth(value: string | undefined, monthKey: string): boolean {
+  return Boolean(value) && toMonthInput(value) === monthKey;
+}
+
 function localDateKey(deltaDays = 0): string {
   const date = new Date();
   date.setDate(date.getDate() + deltaDays);
@@ -94,6 +106,31 @@ function latestFinanceStatementDate(metrics: MetricPoint[]): string | null {
 
 function getFinanceMetricForDate(metrics: MetricPoint[], key: keyof typeof FINANCE_METRIC_NAMES, date: string) {
   return metrics.find((metric) => getFinanceMetricKey(metric.metricName) === key && toDateInput(metric.date) === date);
+}
+
+function getFinanceBucketMetricForDate(metrics: MetricPoint[], key: keyof typeof FINANCE_BUCKET_METRIC_NAMES, date: string) {
+  return metrics.find((metric) => getFinanceBucketKey(metric.metricName) === key && toDateInput(metric.date) === date);
+}
+
+function monthlyEquivalentLabel(expense: UpcomingExpense): string {
+  const formatter = new Intl.NumberFormat("en-AU", {
+    style: "currency",
+    currency: "AUD",
+    maximumFractionDigits: 0,
+  });
+
+  const monthlyEquivalent =
+    expense.frequency === "WEEKLY"
+      ? (expense.amount * 52) / 12
+      : expense.frequency === "MONTHLY"
+        ? expense.amount
+        : expense.frequency === "QUARTERLY"
+          ? expense.amount / 3
+          : expense.frequency === "YEARLY"
+            ? expense.amount / 12
+            : 0;
+
+  return monthlyEquivalent > 0 ? `${formatter.format(monthlyEquivalent)}/mo` : "One-off";
 }
 
 function DataStudioPanel({
@@ -158,8 +195,8 @@ export function DataStudioWorkspace({
   const [healthFocusDate, setHealthFocusDate] = useState(() => localDateKey(0));
   const [projectsViewMode, setProjectsViewMode] = useState<DateViewMode>("ALL");
   const [projectsFocusDate, setProjectsFocusDate] = useState(() => localDateKey(0));
-  const [financeViewMode, setFinanceViewMode] = useState<DateViewMode>("ALL");
   const [financeFocusDate, setFinanceFocusDate] = useState(() => latestFinanceStatementDate(initialMetrics) ?? localDateKey(0));
+  const [financeHistoryMonth, setFinanceHistoryMonth] = useState(() => localDateKey(-30).slice(0, 7));
   const [learningViewMode, setLearningViewMode] = useState<DateViewMode>("ALL");
   const [learningFocusDate, setLearningFocusDate] = useState(() => localDateKey(0));
   const [accountsViewMode, setAccountsViewMode] = useState<DateViewMode>("ALL");
@@ -176,6 +213,7 @@ export function DataStudioWorkspace({
   );
   const todayDate = useMemo(() => localDateKey(0), []);
   const yesterdayDate = useMemo(() => localDateKey(-1), []);
+  const currentFinanceMonth = useMemo(() => toMonthInput(todayDate), [todayDate]);
   const activeHealthDate = healthViewMode === "SELECTED_DAY" ? healthFocusDate || todayDate : todayDate;
   const healthDateFilter = useMemo(
     () => (healthViewMode === "SELECTED_DAY" ? [activeHealthDate] : [todayDate, yesterdayDate]),
@@ -203,29 +241,43 @@ export function DataStudioWorkspace({
     [projects, projectsFocusDate, projectsViewMode],
   );
   const customFinanceMetrics = useMemo(
-    () => metrics.filter((item) => getFinanceMetricKey(item.metricName) === null),
+    () =>
+      metrics.filter(
+        (item) => getFinanceMetricKey(item.metricName) === null && getFinanceBucketKey(item.metricName) === null,
+      ),
     [metrics],
   );
   const visibleMetrics = useMemo(
     () =>
-      financeViewMode === "SELECTED_DAY"
-        ? customFinanceMetrics.filter((item) => toDateInput(item.date) === financeFocusDate)
-        : customFinanceMetrics.slice(0, 10),
-    [customFinanceMetrics, financeFocusDate, financeViewMode],
+      customFinanceMetrics
+        .filter((item) => isInMonth(item.date, currentFinanceMonth))
+        .sort((a, b) => b.date.localeCompare(a.date)),
+    [currentFinanceMonth, customFinanceMetrics],
   );
   const visibleTransactions = useMemo(
     () =>
-      financeViewMode === "SELECTED_DAY"
-        ? transactions.filter((item) => toDateInput(item.date) === financeFocusDate)
-        : transactions.slice(0, 12),
-    [financeFocusDate, financeViewMode, transactions],
+      transactions
+        .filter((item) => isInMonth(item.date, currentFinanceMonth))
+        .sort((a, b) => b.date.localeCompare(a.date)),
+    [currentFinanceMonth, transactions],
   );
   const visibleUpcomingExpenses = useMemo(
+    () => upcomingExpenses.slice(0, 12),
+    [upcomingExpenses],
+  );
+  const historicalFinanceMetrics = useMemo(
     () =>
-      financeViewMode === "SELECTED_DAY"
-        ? upcomingExpenses.filter((item) => toDateInput(item.dueDate) === financeFocusDate)
-        : upcomingExpenses.slice(0, 12),
-    [financeFocusDate, financeViewMode, upcomingExpenses],
+      customFinanceMetrics
+        .filter((item) => isInMonth(item.date, financeHistoryMonth))
+        .sort((a, b) => b.date.localeCompare(a.date)),
+    [customFinanceMetrics, financeHistoryMonth],
+  );
+  const historicalTransactions = useMemo(
+    () =>
+      transactions
+        .filter((item) => isInMonth(item.date, financeHistoryMonth))
+        .sort((a, b) => b.date.localeCompare(a.date)),
+    [financeHistoryMonth, transactions],
   );
   const visibleCourses = useMemo(
     () =>
@@ -305,7 +357,17 @@ export function DataStudioWorkspace({
     date: new Date().toISOString().slice(0, 10),
   });
   const [balanceSheetOverrides, setBalanceSheetOverrides] = useState<
-    Record<string, { totalAssets: string; totalLiabilities: string; liquidAssets: string }>
+    Record<
+      string,
+      {
+        totalAssets: string;
+        totalLiabilities: string;
+        liquidAssets: string;
+        emergencyBuffer: string;
+        billsBuffer: string;
+        spendBuffer: string;
+      }
+    >
   >({});
 
   const [newTransaction, setNewTransaction] = useState({
@@ -322,7 +384,6 @@ export function DataStudioWorkspace({
     dueDate: new Date().toISOString().slice(0, 10),
     frequency: "MONTHLY" as UpcomingExpense["frequency"],
     entityId: entityOptions[0]?.id ?? "",
-    paid: false,
   });
 
   const [newHealthLog, setNewHealthLog] = useState({
@@ -383,17 +444,30 @@ export function DataStudioWorkspace({
     [financeFocusDate, metrics],
   );
   const latestFinanceSnapshot = useMemo(() => deriveFinanceMetricSnapshot(metrics), [metrics]);
+  const latestBucketSnapshot = useMemo(
+    () => deriveFinancialBucketSnapshot(metrics, latestFinanceSnapshot.liquidAssets),
+    [latestFinanceSnapshot.liquidAssets, metrics],
+  );
   const financeInsights = useMemo(
     () =>
       deriveFinancePulse({
         transactions,
         upcomingExpenses,
-        liquidAssets: latestFinanceSnapshot.liquidAssets,
+        availableRunwayCash: latestBucketSnapshot.availableRunwayCash,
+        reservedCashTotal: latestBucketSnapshot.reservedCashTotal,
         totalAssets: latestFinanceSnapshot.totalAssets,
         totalLiabilities: latestFinanceSnapshot.totalLiabilities,
         entities,
       }),
-    [entities, latestFinanceSnapshot.liquidAssets, latestFinanceSnapshot.totalAssets, latestFinanceSnapshot.totalLiabilities, transactions, upcomingExpenses],
+    [
+      entities,
+      latestBucketSnapshot.availableRunwayCash,
+      latestBucketSnapshot.reservedCashTotal,
+      latestFinanceSnapshot.totalAssets,
+      latestFinanceSnapshot.totalLiabilities,
+      transactions,
+      upcomingExpenses,
+    ],
   );
   const balanceSheetDraft = useMemo(() => {
     const override = balanceSheetOverrides[financeFocusDate];
@@ -404,11 +478,17 @@ export function DataStudioWorkspace({
     const totalAssetsMetric = getFinanceMetricForDate(metrics, "totalAssets", financeFocusDate);
     const totalLiabilitiesMetric = getFinanceMetricForDate(metrics, "totalLiabilities", financeFocusDate);
     const liquidAssetsMetric = getFinanceMetricForDate(metrics, "liquidAssets", financeFocusDate);
+    const emergencyBufferMetric = getFinanceBucketMetricForDate(metrics, "emergencyBuffer", financeFocusDate);
+    const billsBufferMetric = getFinanceBucketMetricForDate(metrics, "billsBuffer", financeFocusDate);
+    const spendBufferMetric = getFinanceBucketMetricForDate(metrics, "spendBuffer", financeFocusDate);
 
     return {
       totalAssets: totalAssetsMetric ? String(totalAssetsMetric.value) : "",
       totalLiabilities: totalLiabilitiesMetric ? String(totalLiabilitiesMetric.value) : "",
       liquidAssets: liquidAssetsMetric ? String(liquidAssetsMetric.value) : "",
+      emergencyBuffer: emergencyBufferMetric ? String(emergencyBufferMetric.value) : "",
+      billsBuffer: billsBufferMetric ? String(billsBufferMetric.value) : "",
+      spendBuffer: spendBufferMetric ? String(spendBufferMetric.value) : "",
     };
   }, [balanceSheetOverrides, financeFocusDate, metrics]);
   const draftNetWorth = useMemo(() => {
@@ -416,6 +496,16 @@ export function DataStudioWorkspace({
     const totalLiabilities = Number(balanceSheetDraft.totalLiabilities) || 0;
     return totalAssets - totalLiabilities;
   }, [balanceSheetDraft.totalAssets, balanceSheetDraft.totalLiabilities]);
+  const draftReservedCash = useMemo(() => {
+    const emergency = Number(balanceSheetDraft.emergencyBuffer) || 0;
+    const bills = Number(balanceSheetDraft.billsBuffer) || 0;
+    const spend = Number(balanceSheetDraft.spendBuffer) || 0;
+    return emergency + bills + spend;
+  }, [balanceSheetDraft.billsBuffer, balanceSheetDraft.emergencyBuffer, balanceSheetDraft.spendBuffer]);
+  const draftAvailableRunwayCash = useMemo(() => {
+    const liquidAssets = Number(balanceSheetDraft.liquidAssets) || 0;
+    return Math.max(0, liquidAssets - draftReservedCash);
+  }, [balanceSheetDraft.liquidAssets, draftReservedCash]);
 
   async function savePatch<T>(url: string, body: unknown, options?: { successMessage?: string | null }): Promise<T | null> {
     const response = await fetch(url, {
@@ -479,30 +569,66 @@ export function DataStudioWorkspace({
     const totalAssets = Number(balanceSheetDraft.totalAssets);
     const totalLiabilities = Number(balanceSheetDraft.totalLiabilities);
     const liquidAssets = Number(balanceSheetDraft.liquidAssets);
+    const emergencyBuffer = Number(balanceSheetDraft.emergencyBuffer);
+    const billsBuffer = Number(balanceSheetDraft.billsBuffer);
+    const spendBuffer = Number(balanceSheetDraft.spendBuffer);
 
-    if (![totalAssets, totalLiabilities, liquidAssets].every((value) => Number.isFinite(value) && value >= 0)) {
-      setToast({ message: "Enter valid asset, liability, and liquid asset amounts.", tone: "error" });
+    if (
+      ![totalAssets, totalLiabilities, liquidAssets, emergencyBuffer, billsBuffer, spendBuffer].every(
+        (value) => Number.isFinite(value) && value >= 0,
+      )
+    ) {
+      setToast({ message: "Enter valid asset, liability, liquid cash, and bucket amounts.", tone: "error" });
       return;
     }
 
-    const fields: Array<{ key: keyof typeof FINANCE_METRIC_NAMES; value: number }> = [
+    const balanceSheetFields: Array<{ key: keyof typeof FINANCE_METRIC_NAMES; value: number }> = [
       { key: "totalAssets", value: totalAssets },
       { key: "totalLiabilities", value: totalLiabilities },
       { key: "liquidAssets", value: liquidAssets },
     ];
+    const bucketFields: Array<{ key: keyof typeof FINANCE_BUCKET_METRIC_NAMES; value: number }> = [
+      { key: "emergencyBuffer", value: emergencyBuffer },
+      { key: "billsBuffer", value: billsBuffer },
+      { key: "spendBuffer", value: spendBuffer },
+    ];
 
     let nextMetrics = metrics;
 
-    for (const field of fields) {
+    for (const field of balanceSheetFields) {
       const existing = getFinanceMetricForDate(nextMetrics, field.key, financeFocusDate);
-        const payload = {
-          metricName: FINANCE_METRIC_NAMES[field.key],
-          category: "FINANCE" as const,
-          unit: "AUD" as const,
-          value: field.value,
-          date: financeFocusDate,
-          entityId: existing?.entityId ?? defaultFinanceEntityId ?? undefined,
-        };
+      const payload = {
+        metricName: FINANCE_METRIC_NAMES[field.key],
+        category: "FINANCE" as const,
+        unit: "AUD" as const,
+        value: field.value,
+        date: financeFocusDate,
+        entityId: existing?.entityId ?? defaultFinanceEntityId ?? undefined,
+      };
+
+      const saved = existing
+        ? await savePatch<MetricPoint>(`/api/metrics/${existing.id}`, payload, { successMessage: null })
+        : await saveCreate<MetricPoint>("/api/metrics", payload, { successMessage: null });
+
+      if (!saved) {
+        return;
+      }
+
+      nextMetrics = [saved, ...nextMetrics.filter((item) => item.id !== saved.id)].sort((left, right) =>
+        right.date.localeCompare(left.date),
+      );
+    }
+
+    for (const field of bucketFields) {
+      const existing = getFinanceBucketMetricForDate(nextMetrics, field.key, financeFocusDate);
+      const payload = {
+        metricName: FINANCE_BUCKET_METRIC_NAMES[field.key],
+        category: "FINANCE" as const,
+        unit: "AUD" as const,
+        value: field.value,
+        date: financeFocusDate,
+        entityId: existing?.entityId ?? defaultFinanceEntityId ?? undefined,
+      };
 
       const saved = existing
         ? await savePatch<MetricPoint>(`/api/metrics/${existing.id}`, payload, { successMessage: null })
@@ -523,7 +649,7 @@ export function DataStudioWorkspace({
       delete next[financeFocusDate];
       return next;
     });
-    setToast({ message: "Balance sheet saved to Notion", tone: "success" });
+    setToast({ message: "Finance foundation saved to Notion", tone: "success" });
   }
 
   return (
@@ -727,126 +853,206 @@ export function DataStudioWorkspace({
       <section className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
         <h2 className="text-base font-semibold text-white">Finance</h2>
 
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-slate-950/25 p-3">
-          <Button variant={financeViewMode === "ALL" ? "solid" : "ghost"} className="h-8 rounded-full px-3 text-xs" onClick={() => setFinanceViewMode("ALL")}>
-            All dates
-          </Button>
-          <Button variant={financeViewMode === "SELECTED_DAY" ? "solid" : "ghost"} className="h-8 rounded-full px-3 text-xs" onClick={() => setFinanceViewMode("SELECTED_DAY")}>
-            Select day
-          </Button>
-          {financeViewMode === "SELECTED_DAY" ? (
-            <input
-              type="date"
-              className="h-8 rounded-lg border border-white/20 bg-slate-950/60 px-2 text-sm text-white"
-              value={financeFocusDate}
-              onChange={(event) => setFinanceFocusDate((event.target as HTMLInputElement).value || todayDate)}
-            />
-          ) : null}
-          <span className="text-xs text-white/65">
-            Net worth auto-calculates from assets - liabilities • {visibleTransactions.length} transactions • {visibleUpcomingExpenses.length} bills
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-950/25 p-3">
+          <div>
+            <p className="text-sm text-white/85">This month stays editable.</p>
+            <p className="text-xs text-white/55">Older transactions and extra finance entries move into History so the main surface stays clean.</p>
+          </div>
+          <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/70">
+            Active month {currentFinanceMonth}
+          </div>
         </div>
 
         <div className="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
-          <DataStudioPanel title="Balance sheet" summary="This drives net worth on the dashboard." defaultOpen>
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-100/70">Net worth</p>
-                <h3 className="mt-2 text-2xl font-semibold text-white">
-                  {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(draftNetWorth)}
-                </h3>
-                <p className="mt-1 text-sm text-white/65">Statement date {financeFocusDate}</p>
+          <div className="space-y-3">
+            <DataStudioPanel title="Balance sheet" summary="Net worth is assets minus liabilities. Runway only uses liquid cash." defaultOpen>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-100/70">Net worth</p>
+                  <h3 className="mt-2 text-2xl font-semibold text-white">
+                    {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(draftNetWorth)}
+                  </h3>
+                  <p className="mt-1 text-sm text-white/65">Statement date {financeFocusDate}</p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-slate-950/35 px-3 py-2 text-right">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/45">Latest saved</p>
+                  <p className="mt-1 text-sm text-white">
+                    {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(latestFinanceSnapshot.netWorth)}
+                  </p>
+                </div>
               </div>
-              <div className="rounded-xl border border-white/10 bg-slate-950/35 px-3 py-2 text-right">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/45">Latest saved</p>
-                <p className="mt-1 text-sm text-white">
-                  {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(latestFinanceSnapshot.netWorth)}
-                </p>
-              </div>
-            </div>
 
-            <div className="grid gap-2 md:grid-cols-5">
-              <input
-                type="date"
-                className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white"
-                value={financeFocusDate}
-                onChange={(event) => setFinanceFocusDate((event.target as HTMLInputElement).value || todayDate)}
-              />
-              <input
-                className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white"
-                placeholder="Total assets"
-                value={balanceSheetDraft.totalAssets}
-                onChange={(event) =>
-                  setBalanceSheetOverrides((current) => ({
-                    ...current,
-                    [financeFocusDate]: {
-                      ...balanceSheetDraft,
-                      totalAssets: (event.target as HTMLInputElement).value,
-                    },
-                  }))
-                }
-              />
-              <input
-                className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white"
-                placeholder="Total liabilities"
-                value={balanceSheetDraft.totalLiabilities}
-                onChange={(event) =>
-                  setBalanceSheetOverrides((current) => ({
-                    ...current,
-                    [financeFocusDate]: {
-                      ...balanceSheetDraft,
-                      totalLiabilities: (event.target as HTMLInputElement).value,
-                    },
-                  }))
-                }
-              />
-              <input
-                className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white"
-                placeholder="Liquid assets"
-                value={balanceSheetDraft.liquidAssets}
-                onChange={(event) =>
-                  setBalanceSheetOverrides((current) => ({
-                    ...current,
-                    [financeFocusDate]: {
-                      ...balanceSheetDraft,
-                      liquidAssets: (event.target as HTMLInputElement).value,
-                    },
-                  }))
-                }
-              />
-              <Button onClick={saveBalanceSheet}>Save Balance Sheet</Button>
-            </div>
+              <div className="grid gap-2 md:grid-cols-4">
+                <input
+                  type="date"
+                  className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white"
+                  value={financeFocusDate}
+                  onChange={(event) => setFinanceFocusDate((event.target as HTMLInputElement).value || todayDate)}
+                />
+                <input
+                  className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white"
+                  placeholder="Total assets"
+                  value={balanceSheetDraft.totalAssets}
+                  onChange={(event) =>
+                    setBalanceSheetOverrides((current) => ({
+                      ...current,
+                      [financeFocusDate]: {
+                        ...balanceSheetDraft,
+                        totalAssets: (event.target as HTMLInputElement).value,
+                      },
+                    }))
+                  }
+                />
+                <input
+                  className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white"
+                  placeholder="Total liabilities"
+                  value={balanceSheetDraft.totalLiabilities}
+                  onChange={(event) =>
+                    setBalanceSheetOverrides((current) => ({
+                      ...current,
+                      [financeFocusDate]: {
+                        ...balanceSheetDraft,
+                        totalLiabilities: (event.target as HTMLInputElement).value,
+                      },
+                    }))
+                  }
+                />
+                <input
+                  className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white"
+                  placeholder="Liquid cash"
+                  value={balanceSheetDraft.liquidAssets}
+                  onChange={(event) =>
+                    setBalanceSheetOverrides((current) => ({
+                      ...current,
+                      [financeFocusDate]: {
+                        ...balanceSheetDraft,
+                        liquidAssets: (event.target as HTMLInputElement).value,
+                      },
+                    }))
+                  }
+                />
+              </div>
 
-            <div className="grid gap-2 md:grid-cols-4">
-              <div className="rounded-xl border border-white/10 bg-slate-950/25 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/48">Assets</p>
-                <p className="mt-2 text-lg font-semibold text-emerald-100">
-                  {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(balanceSheetSnapshot.totalAssets)}
-                </p>
+              <div className="grid gap-2 md:grid-cols-4">
+                <div className="rounded-xl border border-white/10 bg-slate-950/25 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/48">Assets</p>
+                  <p className="mt-2 text-lg font-semibold text-emerald-100">
+                    {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(balanceSheetSnapshot.totalAssets)}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-slate-950/25 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/48">Liabilities</p>
+                  <p className="mt-2 text-lg font-semibold text-rose-100">
+                    {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(balanceSheetSnapshot.totalLiabilities)}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-slate-950/25 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/48">Liquid cash</p>
+                  <p className="mt-2 text-lg font-semibold text-cyan-100">
+                    {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(balanceSheetSnapshot.liquidAssets)}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-slate-950/25 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/48">Net worth</p>
+                  <p className={`mt-2 text-lg font-semibold ${balanceSheetSnapshot.netWorth >= 0 ? "text-emerald-100" : "text-rose-100"}`}>
+                    {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(balanceSheetSnapshot.netWorth)}
+                  </p>
+                </div>
               </div>
-              <div className="rounded-xl border border-white/10 bg-slate-950/25 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/48">Liabilities</p>
-                <p className="mt-2 text-lg font-semibold text-rose-100">
-                  {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(balanceSheetSnapshot.totalLiabilities)}
-                </p>
-              </div>
-              <div className="rounded-xl border border-white/10 bg-slate-950/25 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/48">Liquid assets</p>
-                <p className="mt-2 text-lg font-semibold text-cyan-100">
-                  {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(balanceSheetSnapshot.liquidAssets)}
-                </p>
-              </div>
-              <div className="rounded-xl border border-white/10 bg-slate-950/25 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/48">Net worth</p>
-                <p className={`mt-2 text-lg font-semibold ${balanceSheetSnapshot.netWorth >= 0 ? "text-emerald-100" : "text-rose-100"}`}>
-                  {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(balanceSheetSnapshot.netWorth)}
-                </p>
-              </div>
-            </div>
-          </DataStudioPanel>
+            </DataStudioPanel>
 
-          <DataStudioPanel title="Runway basis" summary="Runway is calculated from your real expense history, not a manual guess." defaultOpen>
+            <DataStudioPanel title="Cash buckets" summary="Set aside cash you do not want runway to touch." defaultOpen>
+              <div className="grid gap-2 md:grid-cols-4">
+                <input
+                  className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white"
+                  placeholder="Emergency buffer"
+                  value={balanceSheetDraft.emergencyBuffer}
+                  onChange={(event) =>
+                    setBalanceSheetOverrides((current) => ({
+                      ...current,
+                      [financeFocusDate]: {
+                        ...balanceSheetDraft,
+                        emergencyBuffer: (event.target as HTMLInputElement).value,
+                      },
+                    }))
+                  }
+                />
+                <input
+                  className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white"
+                  placeholder="Bills bucket"
+                  value={balanceSheetDraft.billsBuffer}
+                  onChange={(event) =>
+                    setBalanceSheetOverrides((current) => ({
+                      ...current,
+                      [financeFocusDate]: {
+                        ...balanceSheetDraft,
+                        billsBuffer: (event.target as HTMLInputElement).value,
+                      },
+                    }))
+                  }
+                />
+                <input
+                  className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white"
+                  placeholder="Spend bucket"
+                  value={balanceSheetDraft.spendBuffer}
+                  onChange={(event) =>
+                    setBalanceSheetOverrides((current) => ({
+                      ...current,
+                      [financeFocusDate]: {
+                        ...balanceSheetDraft,
+                        spendBuffer: (event.target as HTMLInputElement).value,
+                      },
+                    }))
+                  }
+                />
+                <Button onClick={saveBalanceSheet}>Save Finance Setup</Button>
+              </div>
+
+              <div className="grid gap-2 md:grid-cols-4">
+                {latestBucketSnapshot.buckets.map((bucket) => (
+                  <div key={bucket.key} className="rounded-xl border border-white/10 bg-slate-950/25 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/48">{bucket.label}</p>
+                    <p className="mt-2 text-lg font-semibold text-white">
+                      {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(bucket.amount)}
+                    </p>
+                  </div>
+                ))}
+                <div className="rounded-xl border border-amber-300/20 bg-amber-400/10 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-100/70">Reserved total</p>
+                  <p className="mt-2 text-lg font-semibold text-amber-100">
+                    {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(draftReservedCash)}
+                  </p>
+                  <p className="mt-1 text-xs text-white/55">
+                    Runway can use {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(draftAvailableRunwayCash)}
+                  </p>
+                </div>
+              </div>
+            </DataStudioPanel>
+          </div>
+
+          <DataStudioPanel title="Runway" summary="Runway uses spendable liquid cash and your recurring bills floor." defaultOpen>
             <div className="space-y-3">
+              <div className="grid gap-2 md:grid-cols-2">
+                <div className="rounded-xl border border-cyan-300/20 bg-cyan-400/10 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-100/70">Spendable runway cash</p>
+                  <p className="mt-2 text-2xl font-semibold text-cyan-50">
+                    {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(financeInsights.availableRunwayCash)}
+                  </p>
+                  <p className="mt-1 text-xs text-white/60">
+                    Liquid cash {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(latestFinanceSnapshot.liquidAssets)}
+                    {" · "}
+                    Reserved {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(financeInsights.reservedCashTotal)}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-emerald-300/20 bg-emerald-400/10 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-100/70">Recurring bills floor</p>
+                  <p className="mt-2 text-2xl font-semibold text-emerald-50">
+                    {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(financeInsights.monthlyCommittedBills)}
+                  </p>
+                  <p className="mt-1 text-xs text-white/60">Used as the minimum monthly burn if your audit history is lighter than your standing commitments.</p>
+                </div>
+              </div>
+
               <div className="grid gap-2 md:grid-cols-4">
                 {financeInsights.scenarios.map((scenario) => (
                   <div key={scenario.basis} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
@@ -855,6 +1061,11 @@ export function DataStudioWorkspace({
                       {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(scenario.monthlyEquivalent)}
                     </p>
                     <p className="mt-1 text-xs text-white/55">{scenario.periodLabel}</p>
+                    {scenario.floorApplied ? (
+                      <p className="mt-1 text-xs text-amber-100">Bills floor lifted this above tracked spend.</p>
+                    ) : (
+                      <p className="mt-1 text-xs text-white/50">Tracked spend is already above your recurring bills floor.</p>
+                    )}
                     <p className="mt-2 text-sm text-cyan-100">{scenario.runwayMonths.toFixed(1)} mo runway</p>
                   </div>
                 ))}
@@ -862,10 +1073,10 @@ export function DataStudioWorkspace({
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
                 <p className="text-sm text-white/65">Default runway</p>
                 <p className="mt-1 text-sm text-white/85">
-                  LOS currently uses the 90-day average burn for the main runway number. Shorter windows are shown above so you can compare and audit volatility.
+                  The main runway number uses the 90-day average burn, but never below your recurring monthly bills.
                 </p>
                 <p className="mt-1 text-sm text-white/65">
-                  Current month spend {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(financeInsights.currentMonthExpenses)}
+                  This month spend {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(financeInsights.currentMonthExpenses)}
                   {" · "}
                   Last month {new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(financeInsights.previousMonthExpenses)}
                 </p>
@@ -977,7 +1188,7 @@ export function DataStudioWorkspace({
 
         <DataStudioPanel
           title="Transactions"
-          summary="Income and expense entries here drive the home finance card."
+          summary="Current month only. Add or adjust entries during the month, then let older months roll into History."
         >
           <div className="grid gap-2 md:grid-cols-6">
             <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newTransaction.date} onChange={(event) => setNewTransaction((current) => ({ ...current, date: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
@@ -1002,7 +1213,7 @@ export function DataStudioWorkspace({
           </div>
 
           <div className="space-y-2">
-            {visibleTransactions.map((transaction) => (
+            {visibleTransactions.length > 0 ? visibleTransactions.map((transaction) => (
               <article key={transaction.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-6">
                 <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(transaction.date)} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, date: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
                 <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(transaction.amount)} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, amount: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
@@ -1015,24 +1226,24 @@ export function DataStudioWorkspace({
                   setTransactions((current) => current.map((item) => item.id === updated.id ? updated : item));
                 }}>Save</Button>
               </article>
-            ))}
+            )) : (
+              <p className="rounded-xl border border-dashed border-white/10 bg-slate-950/25 px-3 py-6 text-sm text-white/55">
+                No transaction entries yet for {currentFinanceMonth}. Add this month’s audits here.
+              </p>
+            )}
           </div>
         </DataStudioPanel>
 
         <DataStudioPanel
-          title="Upcoming bills"
-          summary="Due dates feed the dashboard. Marking a bill paid also adds it into burn tracking if no matching expense exists yet."
+          title="Bills schedule"
+          summary="Recurring bills roll forward automatically. No paid toggles."
         >
-          <div className="grid gap-2 md:grid-cols-7">
+          <div className="grid gap-2 md:grid-cols-6">
             <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Bill" value={newUpcomingExpense.bill} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, bill: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
             <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Amount" value={newUpcomingExpense.amount} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, amount: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
             <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newUpcomingExpense.dueDate} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, dueDate: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
             <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newUpcomingExpense.frequency} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, frequency: (event.target as HTMLInputElement | HTMLSelectElement).value as UpcomingExpense["frequency"] }))}>{EXPENSE_FREQUENCIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
             <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newUpcomingExpense.entityId} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value }))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
-            <label className="flex items-center gap-2 rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white">
-              <input type="checkbox" checked={newUpcomingExpense.paid} onChange={(event) => setNewUpcomingExpense((current) => ({ ...current, paid: (event.target as HTMLInputElement).checked }))} />
-              Paid
-            </label>
             <Button onClick={async () => {
               const amount = Number(newUpcomingExpense.amount);
               if (!Number.isFinite(amount)) return;
@@ -1042,7 +1253,6 @@ export function DataStudioWorkspace({
                 dueDate: newUpcomingExpense.dueDate,
                 frequency: newUpcomingExpense.frequency,
                 entityId: newUpcomingExpense.entityId,
-                paid: newUpcomingExpense.paid,
               });
               if (!created) return;
               setUpcomingExpenses((current) => [created, ...current]);
@@ -1052,21 +1262,22 @@ export function DataStudioWorkspace({
 
           <div className="space-y-2">
             {visibleUpcomingExpenses.map((expense) => (
-              <article key={expense.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-7">
+              <article key={expense.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-[1.1fr_0.85fr_0.9fr_0.9fr_1fr_0.8fr]">
                 <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={expense.bill} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, bill: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
                 <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(expense.amount)} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, amount: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
                 <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(expense.dueDate)} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, dueDate: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
                 <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={expense.frequency} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, frequency: (event.target as HTMLInputElement | HTMLSelectElement).value as UpcomingExpense["frequency"] } : item))}>{EXPENSE_FREQUENCIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
                 <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={expense.entityId} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
-                <label className="flex items-center gap-2 rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white">
-                  <input type="checkbox" checked={expense.paid} onChange={(event) => setUpcomingExpenses((current) => current.map((item) => item.id === expense.id ? { ...item, paid: (event.target as HTMLInputElement).checked } : item))} />
-                  Paid
-                </label>
-                <Button variant="ghost" onClick={async () => {
-                  const updated = await savePatch<UpcomingExpense>(`/api/upcoming-expenses/${expense.id}`, expense);
-                  if (!updated) return;
-                  setUpcomingExpenses((current) => current.map((item) => item.id === updated.id ? updated : item));
-                }}>Save</Button>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white/65">
+                    {monthlyEquivalentLabel(expense)}
+                  </span>
+                  <Button variant="ghost" onClick={async () => {
+                    const updated = await savePatch<UpcomingExpense>(`/api/upcoming-expenses/${expense.id}`, expense);
+                    if (!updated) return;
+                    setUpcomingExpenses((current) => current.map((item) => item.id === updated.id ? updated : item));
+                  }}>Save</Button>
+                </div>
               </article>
             ))}
           </div>
@@ -1127,6 +1338,64 @@ export function DataStudioWorkspace({
                 }}>Save</Button>
               </article>
             ))}
+          </div>
+        </DataStudioPanel>
+
+        <DataStudioPanel title="History" summary="Open a finished month only when you need to review or correct it.">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="month"
+              className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white"
+              value={financeHistoryMonth}
+              onChange={(event) => setFinanceHistoryMonth((event.target as HTMLInputElement).value || currentFinanceMonth)}
+            />
+            <span className="text-xs text-white/55">Closed months live here so the current month stays light.</span>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="rounded-xl border border-white/10 bg-slate-950/25 p-3">
+              <p className="text-sm font-semibold text-white">Transactions</p>
+              <div className="mt-3 space-y-2">
+                {historicalTransactions.length > 0 ? historicalTransactions.map((transaction) => (
+                  <article key={transaction.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-6">
+                    <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(transaction.date)} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, date: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
+                    <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(transaction.amount)} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, amount: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
+                    <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={transaction.type} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, type: (event.target as HTMLInputElement | HTMLSelectElement).value as Transaction["type"] } : item))}>{TXN_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+                    <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={transaction.entityId} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+                    <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={transaction.category} onChange={(event) => setTransactions((current) => current.map((item) => item.id === transaction.id ? { ...item, category: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
+                    <Button variant="ghost" onClick={async () => {
+                      const updated = await savePatch<Transaction>(`/api/transactions/${transaction.id}`, transaction);
+                      if (!updated) return;
+                      setTransactions((current) => current.map((item) => item.id === updated.id ? updated : item));
+                    }}>Save</Button>
+                  </article>
+                )) : (
+                  <p className="text-sm text-white/55">No transactions saved for {financeHistoryMonth}.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-white/10 bg-slate-950/25 p-3">
+              <p className="text-sm font-semibold text-white">Other finance metrics</p>
+              <div className="mt-3 space-y-2">
+                {historicalFinanceMetrics.length > 0 ? historicalFinanceMetrics.map((metric) => (
+                  <article key={metric.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-6">
+                    <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={metric.metricName} onChange={(event) => setMetrics((current) => current.map((item) => item.id === metric.id ? { ...item, metricName: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
+                    <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={metric.category} onChange={(event) => setMetrics((current) => current.map((item) => item.id === metric.id ? { ...item, category: (event.target as HTMLInputElement | HTMLSelectElement).value as MetricPoint["category"] } : item))}>{METRIC_CATEGORIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+                    <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={metric.unit} onChange={(event) => setMetrics((current) => current.map((item) => item.id === metric.id ? { ...item, unit: (event.target as HTMLInputElement | HTMLSelectElement).value as MetricPoint["unit"] } : item))}>{METRIC_UNITS.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+                    <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(metric.value)} onChange={(event) => setMetrics((current) => current.map((item) => item.id === metric.id ? { ...item, value: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
+                    <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(metric.date)} onChange={(event) => setMetrics((current) => current.map((item) => item.id === metric.id ? { ...item, date: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
+                    <Button variant="ghost" onClick={async () => {
+                      const updated = await savePatch<MetricPoint>(`/api/metrics/${metric.id}`, metric);
+                      if (!updated) return;
+                      setMetrics((current) => current.map((item) => item.id === updated.id ? updated : item));
+                    }}>Save</Button>
+                  </article>
+                )) : (
+                  <p className="text-sm text-white/55">No extra finance metrics saved for {financeHistoryMonth}.</p>
+                )}
+              </div>
+            </div>
           </div>
         </DataStudioPanel>
       </section>
