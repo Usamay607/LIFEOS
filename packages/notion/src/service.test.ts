@@ -66,6 +66,21 @@ describe("LosService mock mode", () => {
     expect(updated.monthsOfFreedom).toBeLessThan(initial.monthsOfFreedom);
   });
 
+  it("uses latest net worth metric for runway net worth", async () => {
+    memoryStore.get().metrics.push({
+      id: "metric_networth_override",
+      metricName: "Net Worth",
+      category: "FINANCE",
+      unit: "AUD",
+      value: 512_345,
+      date: new Date().toISOString(),
+    });
+
+    const runway = await service.getRunway();
+    expect(runway.netWorth).toBe(512_345);
+    expect(runway.liquidAssets).toBeGreaterThan(0);
+  });
+
   it("builds health overview with weekly aggregates", async () => {
     const overview = await service.getHealthOverview();
     expect(overview.latestLog?.entityId).toBe("ent_fitness");

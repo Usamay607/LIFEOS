@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   AccountRef,
   CourseCert,
@@ -19,6 +19,7 @@ import type {
 import { Button } from "@/components/ui/button";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
+type HealthViewMode = "TODAY_YESTERDAY" | "SELECTED_DAY";
 
 interface DataStudioWorkspaceProps {
   entities: Entity[];
@@ -64,6 +65,15 @@ function toDateInput(value?: string): string {
   return value.slice(0, 10);
 }
 
+function localDateKey(deltaDays = 0): string {
+  const date = new Date();
+  date.setDate(date.getDate() + deltaDays);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function DataStudioWorkspace({
   entities,
   initialProjects,
@@ -92,8 +102,32 @@ export function DataStudioWorkspace({
   const [relationshipCheckins, setRelationshipCheckins] = useState<RelationshipCheckin[]>(initialRelationshipCheckins);
   const [timeOffPlans, setTimeOffPlans] = useState<TimeOffPlan[]>(initialTimeOffPlans);
   const [status, setStatus] = useState<SaveState>("idle");
+  const [toast, setToast] = useState<{ message: string; tone: "success" | "error" } | null>(null);
+  const [healthViewMode, setHealthViewMode] = useState<HealthViewMode>("TODAY_YESTERDAY");
+  const [healthFocusDate, setHealthFocusDate] = useState(() => localDateKey(0));
 
   const entityOptions = useMemo(() => entities.map((entity) => ({ id: entity.id, name: entity.name })), [entities]);
+  const todayDate = useMemo(() => localDateKey(0), []);
+  const yesterdayDate = useMemo(() => localDateKey(-1), []);
+  const activeHealthDate = healthViewMode === "SELECTED_DAY" ? healthFocusDate || todayDate : todayDate;
+  const healthDateFilter = useMemo(
+    () => (healthViewMode === "SELECTED_DAY" ? [activeHealthDate] : [todayDate, yesterdayDate]),
+    [activeHealthDate, healthViewMode, todayDate, yesterdayDate],
+  );
+  const visibleHealthLogs = useMemo(
+    () =>
+      healthLogs
+        .filter((item) => healthDateFilter.includes(toDateInput(item.date)))
+        .sort((a, b) => b.date.localeCompare(a.date)),
+    [healthDateFilter, healthLogs],
+  );
+  const visibleWorkouts = useMemo(
+    () =>
+      workouts
+        .filter((item) => healthDateFilter.includes(toDateInput(item.date)))
+        .sort((a, b) => b.date.localeCompare(a.date)),
+    [healthDateFilter, workouts],
+  );
 
   const [newProject, setNewProject] = useState({
     name: "",
@@ -155,7 +189,6 @@ export function DataStudioWorkspace({
   });
 
   const [newHealthLog, setNewHealthLog] = useState({
-    date: new Date().toISOString().slice(0, 10),
     entityId: entityOptions[0]?.id ?? "",
     steps: "",
     sleepHours: "",
@@ -166,7 +199,6 @@ export function DataStudioWorkspace({
   });
 
   const [newWorkout, setNewWorkout] = useState({
-    date: new Date().toISOString().slice(0, 10),
     entityId: entityOptions[0]?.id ?? "",
     sessionType: "STRENGTH" as WorkoutSession["sessionType"],
     intensity: "MEDIUM" as WorkoutSession["intensity"],
@@ -203,6 +235,12 @@ export function DataStudioWorkspace({
     notes: "",
   });
 
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 1800);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
   async function savePatch<T>(url: string, body: unknown): Promise<T | null> {
     setStatus("saving");
     const response = await fetch(url, {
@@ -213,11 +251,22 @@ export function DataStudioWorkspace({
 
     if (!response.ok) {
       setStatus("error");
+      let message = "Save failed";
+      try {
+        const payload = (await response.json()) as { error?: string };
+        if (payload.error?.trim()) {
+          message = payload.error.trim();
+        }
+      } catch {
+        // Ignore parse errors for non-JSON responses.
+      }
+      setToast({ message, tone: "error" });
       return null;
     }
 
     const payload = (await response.json()) as T;
     setStatus("saved");
+    setToast({ message: "Saved to Notion", tone: "success" });
     window.setTimeout(() => setStatus("idle"), 1000);
     return payload;
   }
@@ -232,17 +281,40 @@ export function DataStudioWorkspace({
 
     if (!response.ok) {
       setStatus("error");
+      let message = "Save failed";
+      try {
+        const payload = (await response.json()) as { error?: string };
+        if (payload.error?.trim()) {
+          message = payload.error.trim();
+        }
+      } catch {
+        // Ignore parse errors for non-JSON responses.
+      }
+      setToast({ message, tone: "error" });
       return null;
     }
 
     const payload = (await response.json()) as T;
     setStatus("saved");
+    setToast({ message: "Saved to Notion", tone: "success" });
     window.setTimeout(() => setStatus("idle"), 1000);
     return payload;
   }
 
   return (
     <div className="space-y-6">
+      {toast ? (
+        <div
+          className={`fixed right-4 top-20 z-50 rounded-lg border px-3 py-2 text-sm font-medium shadow-lg backdrop-blur ${
+            toast.tone === "success"
+              ? "border-emerald-300/70 bg-emerald-400/20 text-emerald-100"
+              : "border-rose-300/70 bg-rose-400/20 text-rose-100"
+          }`}
+        >
+          {toast.message}
+        </div>
+      ) : null}
+
       <p className={`text-sm ${panelTone(status)}`}>
         {status === "saving" && "Saving to LOS + Notion..."}
         {status === "saved" && "Saved"}
@@ -678,10 +750,44 @@ export function DataStudioWorkspace({
       </section>
 
       <section className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-        <h2 className="text-base font-semibold text-white">Health (Daily Logs + Workouts)</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-base font-semibold text-white">Health (Daily Logs + Workouts)</h2>
+          <p className="text-xs text-white/65">
+            {visibleHealthLogs.length} logs • {visibleWorkouts.length} workouts
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-white/10 bg-slate-950/25 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant={healthViewMode === "TODAY_YESTERDAY" ? "solid" : "ghost"}
+              className="h-8 rounded-full px-3 text-xs"
+              onClick={() => setHealthViewMode("TODAY_YESTERDAY")}
+            >
+              Today + Yesterday
+            </Button>
+            <Button
+              variant={healthViewMode === "SELECTED_DAY" ? "solid" : "ghost"}
+              className="h-8 rounded-full px-3 text-xs"
+              onClick={() => setHealthViewMode("SELECTED_DAY")}
+            >
+              Select day
+            </Button>
+            {healthViewMode === "SELECTED_DAY" ? (
+              <input
+                type="date"
+                className="h-8 rounded-lg border border-white/20 bg-slate-950/60 px-2 text-sm text-white"
+                value={healthFocusDate}
+                onChange={(event) => setHealthFocusDate((event.target as HTMLInputElement).value || todayDate)}
+              />
+            ) : null}
+            <span className="text-xs text-white/65">
+              Editing date: {activeHealthDate}
+            </span>
+          </div>
+        </div>
 
         <div className="grid gap-2 md:grid-cols-8">
-          <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newHealthLog.date} onChange={(event) => setNewHealthLog((current) => ({ ...current, date: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
           <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newHealthLog.entityId} onChange={(event) => setNewHealthLog((current) => ({ ...current, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value }))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
           <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Steps" value={newHealthLog.steps} onChange={(event) => setNewHealthLog((current) => ({ ...current, steps: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
           <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Sleep h" value={newHealthLog.sleepHours} onChange={(event) => setNewHealthLog((current) => ({ ...current, sleepHours: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
@@ -691,7 +797,7 @@ export function DataStudioWorkspace({
           <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Weight kg" value={newHealthLog.weightKg} onChange={(event) => setNewHealthLog((current) => ({ ...current, weightKg: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
           <Button onClick={async () => {
             const created = await saveCreate<HealthDailyLog>("/api/health/logs", {
-              date: newHealthLog.date,
+              date: activeHealthDate,
               entityId: newHealthLog.entityId,
               steps: Number(newHealthLog.steps) || 0,
               sleepHours: Number(newHealthLog.sleepHours) || 0,
@@ -707,27 +813,32 @@ export function DataStudioWorkspace({
         </div>
 
         <div className="space-y-2">
-          {healthLogs.slice(0, 10).map((log) => (
-            <article key={log.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-9">
-              <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(log.date)} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, date: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
-              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={log.entityId} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(log.steps)} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, steps: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(log.sleepHours)} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, sleepHours: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(log.restingHeartRate)} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, restingHeartRate: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(log.hydrationLiters)} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, hydrationLiters: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(log.recoveryScore)} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, recoveryScore: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(log.weightKg ?? "")} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, weightKg: (event.target as HTMLInputElement | HTMLSelectElement).value ? Number((event.target as HTMLInputElement | HTMLSelectElement).value) : undefined } : item))} />
-              <Button variant="ghost" onClick={async () => {
-                const updated = await savePatch<HealthDailyLog>(`/api/health/logs/${log.id}`, log);
-                if (!updated) return;
-                setHealthLogs((current) => current.map((item) => item.id === updated.id ? updated : item));
-              }}>Save</Button>
-            </article>
-          ))}
+          {visibleHealthLogs.length > 0 ? (
+            visibleHealthLogs.map((log) => (
+              <article key={log.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-9">
+                <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(log.date)} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, date: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
+                <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={log.entityId} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(log.steps)} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, steps: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(log.sleepHours)} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, sleepHours: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(log.restingHeartRate)} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, restingHeartRate: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(log.hydrationLiters)} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, hydrationLiters: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(log.recoveryScore)} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, recoveryScore: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(log.weightKg ?? "")} onChange={(event) => setHealthLogs((current) => current.map((item) => item.id === log.id ? { ...item, weightKg: (event.target as HTMLInputElement | HTMLSelectElement).value ? Number((event.target as HTMLInputElement | HTMLSelectElement).value) : undefined } : item))} />
+                <Button variant="ghost" onClick={async () => {
+                  const updated = await savePatch<HealthDailyLog>(`/api/health/logs/${log.id}`, log);
+                  if (!updated) return;
+                  setHealthLogs((current) => current.map((item) => item.id === updated.id ? updated : item));
+                }}>Save</Button>
+              </article>
+            ))
+          ) : (
+            <div className="rounded-xl border border-dashed border-white/20 bg-slate-950/20 p-3 text-sm text-white/65">
+              No health logs for this date filter yet. Add one above.
+            </div>
+          )}
         </div>
 
-        <div className="grid gap-2 md:grid-cols-8">
-          <input type="date" className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newWorkout.date} onChange={(event) => setNewWorkout((current) => ({ ...current, date: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
+        <div className="grid gap-2 md:grid-cols-7">
           <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newWorkout.entityId} onChange={(event) => setNewWorkout((current) => ({ ...current, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value }))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
           <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newWorkout.sessionType} onChange={(event) => setNewWorkout((current) => ({ ...current, sessionType: (event.target as HTMLInputElement | HTMLSelectElement).value as WorkoutSession["sessionType"] }))}>{WORKOUT_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
           <select className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" value={newWorkout.intensity} onChange={(event) => setNewWorkout((current) => ({ ...current, intensity: (event.target as HTMLInputElement | HTMLSelectElement).value as WorkoutSession["intensity"] }))}>{WORKOUT_INTENSITIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
@@ -736,7 +847,7 @@ export function DataStudioWorkspace({
           <input className="rounded-lg border border-white/20 bg-slate-950/40 px-3 py-2 text-sm text-white" placeholder="Notes" value={newWorkout.notes} onChange={(event) => setNewWorkout((current) => ({ ...current, notes: (event.target as HTMLInputElement | HTMLSelectElement).value }))} />
           <Button onClick={async () => {
             const created = await saveCreate<WorkoutSession>("/api/health/workouts", {
-              date: newWorkout.date,
+              date: activeHealthDate,
               entityId: newWorkout.entityId,
               sessionType: newWorkout.sessionType,
               intensity: newWorkout.intensity,
@@ -751,22 +862,28 @@ export function DataStudioWorkspace({
         </div>
 
         <div className="space-y-2">
-          {workouts.slice(0, 10).map((workout) => (
-            <article key={workout.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-8">
-              <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(workout.date)} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, date: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
-              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={workout.entityId} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
-              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={workout.sessionType} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, sessionType: (event.target as HTMLInputElement | HTMLSelectElement).value as WorkoutSession["sessionType"] } : item))}>{WORKOUT_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
-              <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={workout.intensity} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, intensity: (event.target as HTMLInputElement | HTMLSelectElement).value as WorkoutSession["intensity"] } : item))}>{WORKOUT_INTENSITIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(workout.durationMinutes)} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, durationMinutes: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(workout.volumeLoadKg ?? "")} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, volumeLoadKg: (event.target as HTMLInputElement | HTMLSelectElement).value ? Number((event.target as HTMLInputElement | HTMLSelectElement).value) : undefined } : item))} />
-              <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={workout.notes ?? ""} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, notes: (event.target as HTMLInputElement | HTMLSelectElement).value || undefined } : item))} />
-              <Button variant="ghost" onClick={async () => {
-                const updated = await savePatch<WorkoutSession>(`/api/health/workouts/${workout.id}`, workout);
-                if (!updated) return;
-                setWorkouts((current) => current.map((item) => item.id === updated.id ? updated : item));
-              }}>Save</Button>
-            </article>
-          ))}
+          {visibleWorkouts.length > 0 ? (
+            visibleWorkouts.map((workout) => (
+              <article key={workout.id} className="grid gap-2 rounded-xl border border-white/10 bg-slate-950/35 p-3 md:grid-cols-8">
+                <input type="date" className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={toDateInput(workout.date)} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, date: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))} />
+                <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={workout.entityId} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, entityId: (event.target as HTMLInputElement | HTMLSelectElement).value } : item))}>{entityOptions.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select>
+                <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={workout.sessionType} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, sessionType: (event.target as HTMLInputElement | HTMLSelectElement).value as WorkoutSession["sessionType"] } : item))}>{WORKOUT_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+                <select className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={workout.intensity} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, intensity: (event.target as HTMLInputElement | HTMLSelectElement).value as WorkoutSession["intensity"] } : item))}>{WORKOUT_INTENSITIES.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(workout.durationMinutes)} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, durationMinutes: Number((event.target as HTMLInputElement | HTMLSelectElement).value) || 0 } : item))} />
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={String(workout.volumeLoadKg ?? "")} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, volumeLoadKg: (event.target as HTMLInputElement | HTMLSelectElement).value ? Number((event.target as HTMLInputElement | HTMLSelectElement).value) : undefined } : item))} />
+                <input className="rounded-lg border border-white/20 bg-slate-950/50 px-2 py-1 text-sm text-white" value={workout.notes ?? ""} onChange={(event) => setWorkouts((current) => current.map((item) => item.id === workout.id ? { ...item, notes: (event.target as HTMLInputElement | HTMLSelectElement).value || undefined } : item))} />
+                <Button variant="ghost" onClick={async () => {
+                  const updated = await savePatch<WorkoutSession>(`/api/health/workouts/${workout.id}`, workout);
+                  if (!updated) return;
+                  setWorkouts((current) => current.map((item) => item.id === updated.id ? updated : item));
+                }}>Save</Button>
+              </article>
+            ))
+          ) : (
+            <div className="rounded-xl border border-dashed border-white/20 bg-slate-950/20 p-3 text-sm text-white/65">
+              No workouts for this date filter yet. Add one above.
+            </div>
+          )}
         </div>
       </section>
 

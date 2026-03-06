@@ -257,6 +257,7 @@ export interface LearningOverview {
 }
 
 export interface RunwayResult {
+  netWorth: number;
   liquidAssets: number;
   monthlyBurn: number;
   monthsOfFreedom: number;

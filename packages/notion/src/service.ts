@@ -1151,8 +1151,12 @@ export class LosService {
     const liquidAssetMetric = metrics
       .filter((metric) => metric.metricName.toLowerCase().includes("liquid assets"))
       .sort((a, b) => b.date.localeCompare(a.date))[0];
+    const netWorthMetric = metrics
+      .filter((metric) => metric.metricName.toLowerCase().includes("net worth"))
+      .sort((a, b) => b.date.localeCompare(a.date))[0];
 
     const liquidAssets = liquidAssetMetric?.value ?? 0;
+    const netWorth = netWorthMetric?.value ?? liquidAssets;
 
     const now = Date.now();
     const ninetyDaysAgo = now - DAY_MS * 90;
@@ -1167,6 +1171,7 @@ export class LosService {
     const monthsOfFreedom = monthlyBurn > 0 ? round2(liquidAssets / monthlyBurn) : 0;
 
     return {
+      netWorth: round2(netWorth),
       liquidAssets: round2(liquidAssets),
       monthlyBurn,
       monthsOfFreedom,

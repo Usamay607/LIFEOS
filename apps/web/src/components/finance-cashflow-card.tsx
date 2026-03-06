@@ -7,8 +7,6 @@ interface FinanceCardProps {
 }
 
 export function FinanceCashflowCard({ data }: FinanceCardProps) {
-  const netWorthMetric = data.runway.liquidAssets * (1 + Math.min(5, data.runway.monthsOfFreedom) / 10);
-
   return (
     <Card className="lg:col-span-8">
       <CardHeader>
@@ -23,7 +21,7 @@ export function FinanceCashflowCard({ data }: FinanceCardProps) {
         <div className="grid gap-4 rounded-2xl border border-white/10 bg-slate-900/40 p-4 md:grid-cols-3">
           <div>
             <p className="text-xs uppercase tracking-[0.08em] text-white/65">Current Net Worth</p>
-            <p className="mt-1 text-3xl font-semibold text-emerald-300">{currencyFormatter.format(netWorthMetric)}</p>
+            <p className="mt-1 text-3xl font-semibold text-emerald-300">{currencyFormatter.format(data.runway.netWorth)}</p>
           </div>
           <div>
             <p className="text-xs uppercase tracking-[0.08em] text-white/65">Liquid Assets</p>
